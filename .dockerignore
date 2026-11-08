@@ -1,0 +1,10 @@
+.venv
+.env
+state
+output
+tests
+*.eml
+*.xlsx
+vault_credentials.json
+__pycache__
+.pytest_cache

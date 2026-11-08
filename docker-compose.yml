@@ -1,0 +1,45 @@
+# Auto-Connect Trade Finance + PostgreSQL
+#   export TF_DB_PASSWORD=$(openssl rand -hex 16)
+#   docker compose run --rm app python -m auto_connect.security add-user --id ops1 --name "Ops One" --roles OPERATIONS
+#   docker compose up -d        ->  http://127.0.0.1:8088   (GET /ready)
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tradefinance
+      POSTGRES_DB: tradefinance
+      POSTGRES_PASSWORD: ${TF_DB_PASSWORD:?set TF_DB_PASSWORD}
+    volumes:
+      - tf-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tradefinance"]
+      interval: 5s
+      retries: 20
+    restart: unless-stopped
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      AUTO_CONNECT_ENV: production
+      AUTO_CONNECT_DATABASE_URL: postgresql://tradefinance:${TF_DB_PASSWORD}@db:5432/tradefinance
+      AUTO_CONNECT_USERS_FILE: /app/state/users.json
+      AUTO_CONNECT_AUDIT_FILE: /app/state/audit/audit.jsonl
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://127.0.0.1:8088}
+      SEND_LIVE_EMAIL: ${SEND_LIVE_EMAIL:-false}
+    env_file:
+      - path: .env.production
+        required: false
+    ports:
+      - "127.0.0.1:8088:8088"
+    volumes:
+      - tf-state:/app/state
+      - tf-output:/app/output
+    restart: unless-stopped
+
+volumes:
+  tf-db:
+  tf-state:
+  tf-output:

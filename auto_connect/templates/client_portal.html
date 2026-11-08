@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trade Finance Online</title>
+<link rel="stylesheet" href="/assets/portal.css">
+</head>
+<body>
+
+<!-- ============================================================ sign in -->
+<div id="login" class="login hidden">
+  <div class="box">
+    <div class="tiny muted" id="lBank"></div>
+    <h1 style="margin-top:4px">Trade Finance Online</h1>
+    <p class="muted" style="margin-top:6px">Apply for letters of credit, guarantees, sureties and collections, upload your documents and follow every step.</p>
+    <div id="lDemo" class="hidden">
+      <div class="row between" style="margin-top:22px"><h3>Choose your company</h3><span class="tag">DEMO</span></div>
+      <div class="pick" id="lCompanies"></div>
+    </div>
+    <div id="lKey" class="hidden" style="margin-top:22px">
+      <label class="f"><span>Your personal access key</span><input type="password" id="lKeyInput" autocomplete="off"></label>
+      <button class="btn big" style="margin-top:14px;width:100%" id="lKeyBtn">Sign in</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ app -->
+<div id="app" class="hidden">
+  <div class="topbar">
+    <div class="brand"><div class="logo">&#127970;</div><div><span id="tBank"></span><small>Trade Finance Online</small></div></div>
+    <div class="who"><span id="tCompany" class="bold"></span><span class="chip" id="tDate"></span><button class="link" id="logout">Sign out</button></div>
+  </div>
+  <nav class="tabs" id="tabs">
+    <button data-v="home" class="active">Home</button>
+    <button data-v="new">New application</button>
+    <button data-v="deals">My transactions</button>
+    <button data-v="apps">My applications</button>
+    <button data-v="msgs">Messages</button>
+  </nav>
+  <main id="view"></main>
+</div>
+
+<script src="/assets/portal.js"></script>
+<script>
+const S = { me: null, view: "home", product: null, uploader: null, edit: null };
+const $ = (id) => document.getElementById(id);
+const V = () => $("view");
+
+async function start() {
+  const info = await P.api("/portal/login-info");
+  $("lBank").textContent = info.bank_name;
+  const saved = P.load("tf_client");
+  if (saved) { P.headers = saved; try { await enter(); return; } catch (e) { P.save("tf_client", null); P.headers = {}; } }
+  $("login").classList.remove("hidden");
+  if (info.demo) {
+    $("lDemo").classList.remove("hidden");
+    $("lCompanies").innerHTML = info.customers.map((c) => `<button data-c="${P.esc(c.customer_id)}"><span><b>${P.esc(c.name)}</b><br><span class="tiny muted">${P.esc(c.city)} &middot; ${P.esc(c.customer_id)}</span></span><span>&rarr;</span></button>`).join("");
+    $("lCompanies").onclick = async (e) => { const b = e.target.closest("[data-c]"); if (!b) return; P.headers = { "X-Customer-Id": b.dataset.c }; await signIn(); };
+  } else {
+    $("lKey").classList.remove("hidden");
+    $("lKeyBtn").onclick = async () => { P.headers = { "X-API-Key": $("lKeyInput").value.trim() }; await signIn(); };
+  }
+}
+async function signIn() {
+  try { await enter(); P.save("tf_client", P.headers); } catch (e) { P.toast(e.message, "err"); }
+}
+async function enter() {
+  S.me = await P.api("/api/v1/portal/me");
+  $("login").classList.add("hidden"); $("app").classList.remove("hidden");
+  $("tBank").textContent = S.me.bank_name; $("tCompany").textContent = S.me.name; $("tDate").textContent = "Business date " + P.date(S.me.business_date);
+  const hash = location.hash.slice(1);
+  if (hash.startsWith("deal/")) openDeal(hash.slice(5)); else go(hash || "home");
+}
+$("logout").onclick = () => { P.save("tf_client", null); P.headers = {}; location.hash = ""; location.reload(); };
+$("tabs").onclick = (e) => { const b = e.target.closest("[data-v]"); if (b) go(b.dataset.v); };
+function setTab(v) { document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.v === v)); }
+async function go(v) {
+  S.view = v; setTab(v); S.hash = v; location.hash = v;
+  V().innerHTML = `<div class="empty">Loading...</div>`;
+  if (v !== "new") S.edit = null;
+  try { await ({ home, new: newApp, deals, apps, msgs }[v] || home)(); } catch (e) { V().innerHTML = `<div class="notice red">${P.esc(e.message)}</div>`; }
+}
+
+// ------------------------------------------------------------------ home
+async function home() {
+  const o = await P.api("/api/v1/portal/overview");
+  const badge = document.querySelector('#tabs [data-v="deals"]');
+  badge.innerHTML = "My transactions" + (o.actions.length ? `<span class="badge">${o.actions.length}</span>` : "");
+  V().innerHTML = `<div class="stack">
+    <div class="row between"><div><h1>${P.greeting()}, ${P.esc(S.me.name)}</h1><p class="muted">Here is everything about your trade finance business with us.</p></div>
+      <button class="btn big" onclick="go('new')">+ New application</button></div>
+    ${o.applications.filter((a) => a.status === "NEEDS_CORRECTION").map((a) => `<div class="notice amber row between"><div><b>Please correct application ${P.esc(a.application_id)}</b> (${P.esc(a.product_name)}, ${P.esc(a.counterparty || "")})<div class="small">${P.esc(a.message)}</div></div>
+      <button class="btn" onclick="editApp('${P.esc(a.application_id)}')">Correct now</button></div>`).join("")}
+    ${o.actions.length ? `<div class="card stack" style="border-color:#f3d39a"><div><h2>&#9888; We need your decision</h2><p class="muted">Please answer before the deadline so we can continue.</p></div>${o.actions.map(actionCard).join("")}</div>` :
+      `<div class="notice green"><b>Nothing to do for you right now.</b> We will let you know here and by email when we need your decision.</div>`}
+    <div class="grid g4">
+      <div class="tile blue click" onclick="go('deals')"><div class="lbl">Active transactions</div><div class="num">${o.counts.active}</div><div class="hint">Open amount ${P.money(o.open_amount_eur, "EUR")}</div></div>
+      <div class="tile amber"><div class="lbl">Under review by the bank</div><div class="num">${o.counts.under_review}</div><div class="hint">No action needed from you</div></div>
+      <div class="tile green click" onclick="go('deals')"><div class="lbl">Completed</div><div class="num">${o.counts.completed}</div></div>
+      <div class="tile gray click" onclick="go('apps')"><div class="lbl">Applications sent</div><div class="num">${o.counts.applications}</div></div>
+    </div>
+    <div class="grid g2">
+      <div class="card"><div class="section-title"><h2>Your credit lines</h2><span class="tiny muted">How much you can still use</span></div>${creditLines()}</div>
+      <div class="card"><div class="section-title"><h2>Latest updates</h2></div>${P.timeline(o.updates.slice().reverse(), false)}</div>
+    </div></div>`;
+  bindActions();
+}
+function creditLines() {
+  if (!S.me.credit_lines.length) return `<div class="empty">No credit lines yet. Your relationship manager can arrange one.</div>`;
+  return S.me.credit_lines.map((l) => { const pct = l.limit ? Math.min(100, Math.round(l.used / l.limit * 100)) : 0;
+    return `<div style="margin-bottom:14px"><div class="row between"><b>${P.esc(l.name)}</b><span class="small">${P.money(l.available, l.currency)} available</span></div>
+    <div class="bar ${pct > 90 ? "full" : pct > 70 ? "warn" : ""}" style="margin-top:6px"><div style="width:${pct}%"></div></div>
+    <div class="tiny muted" style="margin-top:3px">Used ${P.money(l.used, l.currency)} of ${P.money(l.limit, l.currency)}</div></div>`; }).join("");
+}
+function actionCard(a) {
+  return `<div class="action-card" data-ref="${P.esc(a.ref)}" data-item="${P.esc(a.item_id)}">
+    <div class="row between"><h3>${P.esc(a.title)}</h3>${a.deadline ? `<span class="pill amber">Answer by ${P.date(a.deadline)}</span>` : ""}</div>
+    <p class="small muted" style="margin-top:2px">${P.esc(a.product_name || "")} ${a.ref ? "&middot; " + P.esc(a.ref) : ""}</p>
+    <p style="margin-top:8px">${P.esc(a.text)}</p>
+    ${a.problems && a.problems.length ? `<ul>${a.problems.map((p) => `<li>${P.esc(p)}</li>`).join("")}</ul>` : ""}
+    ${a.options.some((o) => o.needs_reason) ? `<label class="f" style="margin-top:10px"><span>Reason (needed if you dispute)</span><textarea class="reason"></textarea></label>` : ""}
+    <div class="row" style="margin-top:12px">${a.options.map((o) => `<button class="btn ${o.tone}" data-decision="${o.decision}">${P.esc(o.label)}</button>`).join("")}</div></div>`;
+}
+function bindActions(after) {
+  V().querySelectorAll(".action-card [data-decision]").forEach((b) => b.onclick = async () => {
+    const card = b.closest(".action-card"), ref = card.dataset.ref, reason = card.querySelector(".reason");
+    if (!confirm(`Please confirm: "${b.textContent}"`)) return;
+    b.disabled = true;
+    try {
+      await P.api(`/api/v1/portal/deals/${encodeURIComponent(ref)}/decisions`, { method: "POST", body: { item_id: card.dataset.item, decision: b.dataset.decision, reason: reason ? reason.value : "" } });
+      P.toast("Thank you - your decision was recorded and processed.", "ok");
+      after ? after() : go(S.view);
+    } catch (e) { P.toast(e.message, "err"); b.disabled = false; }
+  });
+}
+
+// ------------------------------------------------------------------ new application
+async function newApp() {
+  S.product = null;
+  const ed = S.edit;
+  V().innerHTML = `<div class="stack">
+    ${ed ? `<div><h1>Change application ${P.esc(ed.application_id)}</h1><p class="muted">Correct the details and send it again. Your earlier version is kept in the history.</p></div>
+      ${ed.problems && ed.problems.length ? `<div class="notice amber"><h3>Please correct ${ed.problems.length === 1 ? "this" : "these"}:</h3><ul style="margin:6px 0 0;padding-left:20px">${ed.problems.map((p) => `<li>${p.field ? `<b>${P.esc(P.labelOf(ed.product, p.field))}:</b> ` : ""}${P.esc(p.message)}</li>`).join("")}</ul>
+        ${/Note from the bank: (.*)$/.test(ed.message || "") ? `<p class="small" style="margin-top:6px"><b>Note from the bank:</b> ${P.esc(ed.message.match(/Note from the bank: (.*)$/)[1])}</p>` : ""}</div>`
+      : ed.status === "REJECTED" ? `<div class="notice red"><b>Why it was not accepted:</b> ${P.esc(ed.message)}</div>` : `<div class="notice amber">${P.esc(ed.status_text)}</div>`}`
+    : `<div><h1>New application</h1><p class="muted">Choose what you need. Every field has a short explanation. Fields marked <span style="color:var(--red)">*</span> are required.</p></div>`}
+    <div id="chooser"></div>
+    <div id="formArea" class="hidden"><div class="grid" style="grid-template-columns:minmax(0,1fr) 300px;align-items:start" id="formGrid">
+      <div class="stack">
+        <div class="row between"><h2 id="fTitle"></h2><button class="btn sec small" id="fExample">Fill in an example</button></div>
+        <div id="form"></div>
+        <div class="form-section"><h3>Supporting documents (optional)</h3><div class="help">For example the pro-forma invoice, purchase order or contract. They are stored safely with your application.</div><div id="upl"></div></div>
+        <div id="fErrors"></div>
+        <div class="row"><button class="btn big" id="fSubmit">${ed ? "Send changed application" : "Submit application"}</button>${ed ? `<button class="btn sec big" onclick="go('apps')">Cancel</button>` : ""}<span class="muted small">You can follow it under "My applications".</span></div>
+      </div>
+      <div class="card flat stack-s" style="position:sticky;top:16px"><h3>What happens next?</h3>
+        <p class="small"><b>1. Saved.</b> Your application is stored immediately - nothing gets lost.</p>
+        <p class="small"><b>2. Checked.</b> We automatically check the details, your credit line and the rules.</p>
+        <p class="small"><b>3. Issued.</b> Usually within minutes. We send it to the other bank via SWIFT.</p>
+        <p class="small"><b>4. Informed.</b> You get an email and see every step here.</p>
+        <p class="small muted">If a person at the bank needs to look at it, you will see "Under review". You do not need to do anything.</p></div>
+    </div></div>
+    <div id="result"></div></div>`;
+  if (window.innerWidth < 900) $("formGrid").style.gridTemplateColumns = "1fr";
+  const pick = (p) => {
+    S.product = p; $("formArea").classList.remove("hidden"); $("result").innerHTML = "";
+    $("fTitle").textContent = P.FORMS[p].name; P.renderForm($("form"), p, S.me.currencies);
+    S.uploader = P.uploader($("upl")); if (!ed) $("formArea").scrollIntoView({ behavior: "smooth" });
+  };
+  if (ed) {
+    $("chooser").classList.add("hidden"); pick(ed.product); P.fillForm($("form"), P.flatten(ed.details));
+    if (ed.problems && ed.problems.length) P.showErrors($("form"), ed.product, ed.problems);
+    if (ed.attachments.length) $("upl").insertAdjacentHTML("beforebegin", `<p class="small">Already attached: ${ed.attachments.map((a) => P.esc(a.filename)).join(", ")}. You can add more below.</p>`);
+  } else P.chooser($("chooser"), pick);
+  $("fExample").onclick = () => P.fillForm($("form"), P.examples(S.product, S.me.business_date));
+  $("fSubmit").onclick = submitApp;
+}
+async function submitApp() {
+  const btn = $("fSubmit"), label = btn.textContent; btn.disabled = true; btn.textContent = "Submitting..."; $("fErrors").innerHTML = "";
+  try {
+    const body = { product: S.product, details: P.collectForm($("form")), files: S.uploader.files() };
+    const r = S.edit ? await P.api(`/api/v1/portal/applications/${encodeURIComponent(S.edit.application_id)}/resubmit`, { method: "POST", body })
+                     : await P.api("/api/v1/portal/applications", { method: "POST", body });
+    if (r.status === "NEEDS_CORRECTION") { S.edit = r; await newApp(); window.scrollTo(0, 0);
+      P.toast("Your application is saved. Please correct the marked fields and send it again."); return; }
+    S.edit = null; showResult(r);
+  } catch (e) {
+    const left = P.showErrors($("form"), S.product, e.errors);
+    $("fErrors").innerHTML = `<div class="notice red"><b>${P.esc(e.message)}</b>${left.length ? `<ul>${left.map((x) => `<li>${P.esc(x)}</li>`).join("")}</ul>` : ""}</div>`;
+  } finally { btn.disabled = false; btn.textContent = label; }
+}
+function showResult(r) {
+  $("formArea").classList.add("hidden"); $("chooser").classList.add("hidden");
+  const tone = r.deal_tone || r.tone;
+  $("result").innerHTML = `<div class="notice ${tone === "green" ? "green" : tone === "red" ? "red" : tone === "amber" ? "amber" : "blue"}">
+    <h2>${r.status === "PROCESSED" ? "&#10004; Application received and processed" : r.status === "WAITING_FOR_SYSTEM" ? "&#10004; Application saved" : "Application received"}</h2>
+    <p style="margin-top:6px">Application number <b>${P.esc(r.application_id)}</b>${r.deal_ref ? ` &middot; Transaction <b>${P.esc(r.deal_ref)}</b>` : ""}</p>
+    <p style="margin-top:6px"><b>${P.esc(r.deal_status_label || r.status_label)}:</b> ${P.esc(r.deal_status_text || r.status_text)}</p>
+    ${r.status === "REJECTED" ? `<p style="margin-top:6px">${P.esc(r.message)}</p>` : ""}
+    <div class="row" style="margin-top:14px">${r.deal_ref ? `<button class="btn" onclick="openDeal('${P.esc(r.deal_ref)}')">Open the transaction</button>` : ""}
+    <button class="btn sec" onclick="go('new')">New application</button><button class="btn sec" onclick="go('home')">Back to home</button></div></div>`;
+}
+
+// ------------------------------------------------------------------ transactions
+async function deals() {
+  const rows = await P.api("/api/v1/portal/deals");
+  V().innerHTML = `<div class="stack"><div><h1>My transactions</h1><p class="muted">Click a row to see every detail and step.</p></div>
+    <div class="card" style="padding:0"><div class="table-wrap"><table class="list"><thead><tr><th>Reference</th><th>Type</th><th>Other party</th><th class="num">Amount</th><th>Status</th><th>Valid until</th></tr></thead><tbody>
+    ${rows.length ? rows.map((r) => `<tr class="click" data-ref="${P.esc(r.ref)}"><td class="bold">${P.esc(r.ref)}</td><td>${P.esc(r.product_name)}</td>
+      <td>${P.esc(r.counterparty || "-")}</td><td class="num">${P.money(r.amount, r.currency)}</td>
+      <td>${P.pill(r.tone, r.status_label)}${r.actions_needed ? ` <span class="pill amber">Your decision needed</span>` : ""}</td><td>${P.date(r.expiry_date)}</td></tr>`).join("")
+      : `<tr><td colspan="6" class="empty">No transactions yet. <a href="#" onclick="go('new');return false">Start your first application.</a></td></tr>`}</tbody></table></div></div></div>`;
+  V().querySelectorAll("[data-ref]").forEach((tr) => tr.onclick = () => openDeal(tr.dataset.ref));
+}
+async function openDeal(ref) {
+  setTab("deals"); S.hash = "deal/" + ref; location.hash = S.hash; S.view = "deals";
+  V().innerHTML = `<div class="empty">Loading...</div>`;
+  let d;
+  try { d = await P.api(`/api/v1/portal/deals/${encodeURIComponent(ref)}`); } catch (e) { V().innerHTML = `<div class="notice red">${P.esc(e.message)}</div>`; return; }
+  V().innerHTML = `<div class="stack">
+    <button class="btn sec small" onclick="go('deals')">&larr; All transactions</button>
+    <div class="card stack">
+      <div class="row between"><div><div class="tiny muted">${P.esc(d.product_name)}</div><h1>${P.esc(d.ref)} &middot; ${P.money(d.amount, d.currency)}</h1>
+        <p class="muted">${P.esc(d.counterparty || "")}</p></div>${P.pill(d.tone, d.status_label)}</div>
+      <div class="notice ${d.tone === "green" ? "green" : d.tone === "amber" ? "amber" : d.tone === "red" ? "red" : d.tone === "gray" ? "gray" : "blue"}"><b>${P.esc(d.status_label)}.</b> ${P.esc(d.status_text)}</div>
+      ${P.progress(d.progress)}
+    </div>
+    ${d.actions.length ? `<div class="card stack" style="border-color:#f3d39a"><h2>&#9888; We need your decision</h2>${d.actions.map((a) => actionCard({ ...a, ref: d.ref })).join("")}</div>` : ""}
+    <div class="card"><h2 style="margin-bottom:12px">Key details</h2>${P.facts(d.facts)}<p class="tiny muted" style="margin-top:12px">${P.esc(d.product_help)}</p></div>
+    ${changeCard(d)}
+    <div class="grid g2">
+      <div class="card"><h2 style="margin-bottom:12px">What happened</h2>${P.timeline(d.story, false)}</div>
+      <div class="stack">
+        <div class="card"><h2 style="margin-bottom:12px">Charges</h2>${d.fees.length ? `<table class="list"><tbody>${d.fees.map((f) => `<tr><td>${P.date(f.date)}</td><td>${P.esc(f.fee)}</td><td class="num">${P.money(f.amount, f.currency)}</td></tr>`).join("")}</tbody></table>` : `<div class="empty">No charges yet.</div>`}</div>
+        <div class="card"><h2 style="margin-bottom:12px">Messages from the bank</h2>${d.messages.length ? d.messages.slice().reverse().map((m) => `<details style="margin-bottom:8px"><summary><b>${P.esc(m.subject)}</b> <span class="tiny muted">${P.date(m.date)}</span></summary><pre style="white-space:pre-wrap;font:inherit;font-size:13px;margin:8px 0 0">${P.esc(m.body)}</pre></details>`).join("") : `<div class="empty">No messages.</div>`}</div>
+      </div>
+    </div>
+    <div class="card"><h2 style="margin-bottom:12px">Documents</h2>${P.docsTable(d.documents, (x) => "/api/v1/portal/files/" + encodeURIComponent(x.file_id))}</div>
+  </div>`;
+  bindActions(() => openDeal(ref));
+  const cb = $("chgBtn"); if (cb) cb.onclick = () => changeForm(d);
+}
+function changeCard(d) {
+  const c = d.change;
+  if (!c || (!c.can_change && !c.history.length && d.finished)) return "";
+  return `<div class="card stack-s"><div class="row between"><div><h2>Changes</h2><p class="small muted">Need a higher amount or more time? Request a change (amendment). The bank checks your credit line and informs the other bank.</p></div>
+    ${c.can_change ? `<button class="btn" id="chgBtn">Request a change</button>` : ""}</div>
+    ${!c.can_change && c.why_not ? `<div class="notice gray small">${P.esc(c.why_not)}</div>` : ""}
+    ${c.history.length ? `<table class="list"><tbody>${c.history.map((h) => `<tr><td>Change ${h.number}</td><td>${P.date(h.date)}</td><td>${P.esc(h.changes)}</td><td>${P.pill(h.tone, h.label)}</td></tr>`).join("")}</tbody></table>` : ""}</div>`;
+}
+function changeForm(d) {
+  const c = d.change.current;
+  const m = P.modal(`<div class="row between"><h2>Request a change to ${P.esc(d.ref)}</h2><button class="btn sec small" data-close>Close</button></div>
+    <p class="small muted" style="margin-top:6px">Only fill in what should change. ${d.change.needs_other_party ? "For a letter of credit the seller must agree to the change before it applies." : "The change applies as soon as the bank has processed it."} A change fee applies.</p>
+    <div class="fields" style="margin-top:14px">
+      <label class="f"><span>New total amount (${P.esc(c.currency)})</span><input type="text" id="cAmount" inputmode="decimal" placeholder="now ${P.money(c.amount)}"><span class="hint">Currently ${P.money(c.amount, c.currency)}</span></label>
+      <label class="f"><span>New "valid until" date</span><input type="date" id="cExpiry" value="${P.esc(c.expiry_date || "")}"><span class="hint">Currently ${P.date(c.expiry_date)}</span></label>
+      ${c.latest_shipment_date ? `<label class="f"><span>New latest shipment date</span><input type="date" id="cShip" value="${P.esc(c.latest_shipment_date)}"><span class="hint">Currently ${P.date(c.latest_shipment_date)}</span></label>` : ""}
+      <label class="f wide"><span>Reason (optional)</span><textarea id="cReason" placeholder="e.g. Second machine added to the order"></textarea></label>
+    </div><div id="cErr" style="margin-top:10px"></div>
+    <div class="row" style="margin-top:14px"><button class="btn" id="cSend">Send change request</button><button class="btn sec" data-close>Cancel</button></div>`);
+  m.querySelector("#cSend").onclick = async () => {
+    const b = m.querySelector("#cSend"); b.disabled = true;
+    const ship = m.querySelector("#cShip");
+    try {
+      await P.api(`/api/v1/portal/deals/${encodeURIComponent(d.ref)}/changes`, { method: "POST", body: {
+        amount: m.querySelector("#cAmount").value.trim(), expiry_date: m.querySelector("#cExpiry").value,
+        latest_shipment_date: ship ? ship.value : "", reason: m.querySelector("#cReason").value.trim() } });
+      m.remove(); P.toast("Your change request was received and processed.", "ok"); openDeal(d.ref);
+    } catch (e) { m.querySelector("#cErr").innerHTML = `<div class="notice red small">${P.esc(e.message)}</div>`; b.disabled = false; }
+  };
+}
+
+// ------------------------------------------------------------------ applications & messages
+async function apps() {
+  const rows = await P.api("/api/v1/portal/applications");
+  V().innerHTML = `<div class="stack"><div class="row between"><div><h1>My applications</h1><p class="muted">Everything you sent us, in the order you sent it.</p></div><button class="btn" onclick="go('new')">+ New application</button></div>
+    <div class="card" style="padding:0"><div class="table-wrap"><table class="list"><thead><tr><th>Application</th><th>Sent</th><th>Type</th><th>Other party</th><th class="num">Amount</th><th>Status</th><th>Transaction</th></tr></thead><tbody>
+    ${rows.length ? rows.map((a) => `<tr${a.deal_ref ? ` class="click" data-ref="${P.esc(a.deal_ref)}"` : ""}><td class="bold">${P.esc(a.application_id)}</td><td>${P.when(a.submitted_at)}</td><td>${P.esc(a.product_name)}</td>
+      <td>${P.esc(a.counterparty || "-")}</td><td class="num">${P.money(a.amount, a.currency)}</td>
+      <td>${P.pill(a.deal_tone || a.tone, a.deal_status_label || a.status_label)}${a.status === "REJECTED" || a.status === "NEEDS_CORRECTION" ? `<div class="tiny muted">${P.esc(a.message)}</div>` : ""}
+        ${a.can_edit ? `<div class="row" style="gap:6px;margin-top:8px"><button class="btn small" data-edit="${P.esc(a.application_id)}">${a.status === "NEEDS_CORRECTION" ? "Correct now" : "Edit &amp; resubmit"}</button><button class="btn sec small" data-wd="${P.esc(a.application_id)}">Withdraw</button></div>` : ""}</td>
+      <td>${a.deal_ref ? `${P.esc(a.deal_ref)}<div><button class="btn sec small" style="margin-top:6px">Open / request a change</button></div>` : "-"}</td></tr>`).join("") : `<tr><td colspan="7" class="empty">No applications yet.</td></tr>`}</tbody></table></div></div>
+    <p class="small muted">An application can be edited until it becomes a transaction. After that, changes to amount or dates are requested on the transaction itself (an "amendment"), because the other bank already has the original.</p></div>`;
+  V().querySelectorAll("[data-ref]").forEach((tr) => tr.onclick = () => openDeal(tr.dataset.ref));
+  V().querySelectorAll("[data-edit]").forEach((b) => b.onclick = (e) => { e.stopPropagation(); editApp(b.dataset.edit); });
+  V().querySelectorAll("[data-wd]").forEach((b) => b.onclick = async (e) => { e.stopPropagation();
+    if (!confirm("Withdraw this application? It will not be processed.")) return;
+    try { await P.api(`/api/v1/portal/applications/${encodeURIComponent(b.dataset.wd)}/withdraw`, { method: "POST" }); P.toast("Application withdrawn.", "ok"); apps(); }
+    catch (err) { P.toast(err.message, "err"); } });
+}
+async function editApp(id) {
+  try { S.edit = await P.api(`/api/v1/portal/applications/${encodeURIComponent(id)}`); S.view = "new"; setTab("new"); S.hash = "new"; location.hash = "new"; await newApp(); window.scrollTo(0, 0); }
+  catch (err) { P.toast(err.message, "err"); }
+}
+async function msgs() {
+  const rows = await P.api("/api/v1/portal/messages");
+  V().innerHTML = `<div class="stack"><div><h1>Messages</h1><p class="muted">Everything the bank sent you. You also received these by email.</p></div>
+    <div class="card">${rows.length ? rows.map((m) => `<details style="border-bottom:1px solid var(--line-2);padding:10px 0"><summary><b>${P.esc(m.subject)}</b> <span class="tiny muted">${P.date(m.date)} &middot; ${P.esc(m.ref || "")}</span></summary>
+      <pre style="white-space:pre-wrap;font:inherit;font-size:14px;margin:10px 0 0">${P.esc(m.body)}</pre>${m.ref ? `<button class="btn sec small" style="margin-top:8px" onclick="openDeal('${P.esc(m.ref)}')">Open transaction</button>` : ""}</details>`).join("") : `<div class="empty">No messages yet.</div>`}</div></div>`;
+}
+window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if (!S.me || h === S.hash) return;
+  if (h.startsWith("deal/")) openDeal(h.slice(5)); else go(h || "home"); });
+start().catch((e) => { document.body.innerHTML = `<div class="notice red" style="margin:40px">${P.esc(e.message)}</div>`; });
+</script>
+</body>

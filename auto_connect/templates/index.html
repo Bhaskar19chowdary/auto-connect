@@ -1,0 +1,1085 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auto-Connect: Autonomous Banking Discovery & A2A Ecosystem</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Sends the optional AUTO_CONNECT_API_KEY (stored in this browser) with every API call.
+        (function () {
+            const orig = window.fetch;
+            window.fetch = function (url, opts) {
+                opts = opts || {};
+                let key = null;
+                try { key = localStorage.getItem("autoConnectApiKey"); } catch (e) {}
+                if (key) { opts.headers = Object.assign({}, opts.headers || {}, { "X-API-Key": key }); }
+                return orig(url, opts);
+            };
+        })();
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background: #0a0e17;
+            color: #e2e8f0;
+        }
+        pre, code, .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .glass {
+            background: rgba(18, 24, 38, 0.85);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .glow-accent {
+            box-shadow: 0 0 35px -5px rgba(59, 130, 246, 0.25);
+        }
+        .glow-emerald {
+            box-shadow: 0 0 35px -5px rgba(16, 185, 129, 0.25);
+        }
+        .badge-tf { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
+        .badge-credit { background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); }
+        .badge-portal { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+        .badge-aml { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+        .badge-office { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+        .badge-core { background: rgba(148, 163, 184, 0.15); color: #cbd5e1; border: 1px solid rgba(148, 163, 184, 0.3); }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+    <div class="max-w-7xl mx-auto space-y-6">
+
+        <!-- Top Header -->
+        <header class="glass rounded-2xl p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border border-blue-500/20">
+            <div>
+                <div class="flex items-center gap-3">
+                    <span class="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500 via-indigo-600 to-purple-600 text-white font-black text-2xl shadow-lg shadow-blue-500/25">
+                        ⚡
+                    </span>
+                    <div>
+                        <h1 class="text-2xl font-black tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">
+                            Auto-Connect: Ecosystem Bootstrapper
+                        </h1>
+                        <p class="text-xs text-slate-400">
+                            Tier-1 Multi-Agent Mesh & Self-Assembling Application Onboarding (Trade Financing)
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="flex flex-wrap items-center gap-2 text-xs">
+                <a href="/trade" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/40 font-semibold hover:bg-amber-500/25">
+                    Trade Finance Operations (LC / Guarantees / Sureties) &rarr;
+                </a>
+                <a href="/bank" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/40 font-semibold hover:bg-sky-500/25">Bank workbench &rarr;</a>
+                <a href="/portal" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/40 font-semibold hover:bg-sky-500/25">Client portal &rarr;</a>
+                <span class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    Zero-Trust Gate: SECURE
+                </span>
+                <span id="gemini-status-badge" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/30">
+                    Brain: ACTIVE
+                </span>
+                <div class="flex items-center gap-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1">
+                    <input id="key-input" type="password" placeholder="Paste GEMINI_API_KEY..." class="bg-transparent text-xs text-slate-200 placeholder-slate-500 focus:outline-none w-36">
+                    <button onclick="saveApiKey()" class="px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-semibold">Save</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Stats Overview -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="glass p-5 rounded-xl border-l-4 border-l-blue-500">
+                <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Connected Apps</div>
+                <div class="text-3xl font-extrabold text-white mt-1" id="stat-agents">--</div>
+                <div class="text-xs text-blue-400 mt-1">Autonomous Agents in Mesh</div>
+            </div>
+            <div class="glass p-5 rounded-xl border-l-4 border-l-emerald-500">
+                <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Zero-Trust Vault</div>
+                <div class="text-3xl font-extrabold text-emerald-400 mt-1" id="stat-creds">--</div>
+                <div class="text-xs text-slate-400 mt-1">mTLS / OAuth2 Sealed Tokens</div>
+            </div>
+            <div class="glass p-5 rounded-xl border-l-4 border-l-purple-500">
+                <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Discovered MCP Tools</div>
+                <div class="text-3xl font-extrabold text-purple-400 mt-1" id="stat-tools">--</div>
+                <div class="text-xs text-slate-400 mt-1">Universal Dynamic Exec</div>
+            </div>
+            <div class="glass p-5 rounded-xl border-l-4 border-l-amber-500">
+                <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">A2A Protocol</div>
+                <div class="text-3xl font-extrabold text-amber-400 mt-1">RFC-A2A</div>
+                <a href="/.well-known/agent.json" target="_blank" class="text-xs text-slate-400 hover:text-amber-300 underline mt-1 block">/.well-known/agent.json</a>
+            </div>
+        </div>
+
+        <!-- NEW: Zero-Code Application Onboarding Section -->
+        <div class="glass rounded-2xl p-6 border border-indigo-500/30 glow-accent space-y-4">
+            <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                <div>
+                    <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                        <span>🔌</span> Connect New Bank Application (Zero-Code Onboarding)
+                    </h2>
+                    <p class="text-xs text-slate-400">
+                        Just enter the API details below. The Brain will verify credentials, probe endpoints, generate tools, and link the application to all other agents automatically!
+                    </p>
+                </div>
+                <span class="px-2.5 py-1 rounded-full bg-indigo-500/10 text-indigo-400 font-mono text-[11px] border border-indigo-500/20">
+                    Self-Assembling Pipeline
+                </span>
+            </div>
+
+            <!-- Quick One-Click Presets -->
+            <div class="space-y-1.5">
+                <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Quick Presets (Click to Auto-Fill):</div>
+                <div class="flex flex-wrap gap-2">
+                    <button type="button" onclick="applyPreset('moodys')" class="px-3 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-purple-300 flex items-center gap-1.5 transition">
+                        <span>📊</span> Moody's Risk
+                    </button>
+                    <button type="button" onclick="applyPreset('refinitiv')" class="px-3 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-red-300 flex items-center gap-1.5 transition">
+                        <span>🛡️</span> Refinitiv AML
+                    </button>
+                    <button type="button" onclick="applyPreset('swift')" class="px-3 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-cyan-300 flex items-center gap-1.5 transition">
+                        <span>🌐</span> SWIFT Alliance
+                    </button>
+                    <button type="button" onclick="applyPreset('bloomberg')" class="px-3 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-orange-300 flex items-center gap-1.5 transition">
+                        <span>📈</span> Bloomberg Terminal
+                    </button>
+                    <button type="button" onclick="applyPreset('wolters_kluwer')" class="px-3 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-yellow-300 flex items-center gap-1.5 transition">
+                        <span>⚖️</span> Wolters Kluwer Basel III
+                    </button>
+                    <button type="button" onclick="applyPreset('finastra')" class="px-3 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-emerald-300 flex items-center gap-1.5 transition">
+                        <span>💰</span> Finastra Treasury
+                    </button>
+                    <button type="button" onclick="applyPreset('avaloq')" class="px-3 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-pink-300 flex items-center gap-1.5 transition">
+                        <span>💎</span> Avaloq Wealth
+                    </button>
+                    <button type="button" onclick="applyPreset('dtcc')" class="px-3 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-indigo-300 flex items-center gap-1.5 transition">
+                        <span>📑</span> DTCC Trade Repository
+                    </button>
+                    <button type="button" onclick="applyPreset('ebics')" class="px-3 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-amber-300 flex items-center gap-1.5 transition">
+                        <span>🏛️</span> EBICS Gateway
+                    </button>
+                    <button type="button" onclick="applyPreset('outlook_teams')" class="px-3 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-blue-300 flex items-center gap-1.5 transition">
+                        <span>✉️</span> Outlook & Teams
+                    </button>
+                    <button type="button" onclick="applyPreset('office_excel_ppt')" class="px-3 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-teal-300 flex items-center gap-1.5 transition">
+                        <span>📑</span> Excel & PPT
+                    </button>
+                    <button type="button" onclick="applyPreset('custom')" class="px-3 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-slate-300 flex items-center gap-1.5 transition">
+                        <span>⚙️</span> Custom Bank API
+                    </button>
+                </div>
+            </div>
+
+            <!-- Form Grid -->
+            <form id="connect-api-form" onsubmit="connectNewApp(event)" class="space-y-3 pt-1">
+                <input type="hidden" id="app-preset-type" value="custom">
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">Application Name</label>
+                        <input id="app-name-input" type="text" required placeholder="e.g. Moody's Analytics CreditEdge" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">Application URL (API found automatically)</label>
+                        <input id="app-url-input" type="text" placeholder="e.g. https://screening.vendor.com/api" oninput="document.getElementById('app-preset-type').value='custom'" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">Authentication Type</label>
+                        <select id="app-auth-select" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500">
+                            <option value="Bearer">Bearer Token (OAuth2)</option>
+                            <option value="API_KEY">API Key Header</option>
+                            <option value="mTLS">mTLS Client Certificate</option>
+                            <option value="None">None (Internal Network)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">OpenAPI / Swagger URL (optional)</label>
+                        <input id="app-spec-url-input" type="text" placeholder="only if not at a standard location" oninput="document.getElementById('app-preset-type').value='custom'" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">API Key / Token / Certificate Thumbprint</label>
+                        <input id="app-token-input" type="password" placeholder="e.g. sec_token_moodys_live_9910" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">Endpoints (only if the app publishes no API description)</label>
+                        <input id="app-endpoints-input" type="text" placeholder="e.g. /ratings/counterparty, /models/pd-lgd" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500">
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between pt-2">
+                    <span class="text-[11px] text-slate-400 flex items-center gap-1.5">
+                        <span class="w-2 h-2 rounded-full bg-blue-400"></span>
+                        Zero-Trust Safe: Tokens are sealed in Vault with audit logs.
+                    </span>
+                    <button type="submit" id="connect-btn" class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-semibold text-xs flex items-center gap-2 shadow-lg shadow-indigo-500/25 transition">
+                        <span id="connect-spinner" class="hidden animate-spin">⏳</span>
+                        <span>Verify & Assimilate into Bank Mesh</span>
+                    </button>
+                </div>
+            </form>
+
+            <!-- Verification Pipeline Box (Live animated status) -->
+            <div id="pipeline-card" class="hidden p-4 rounded-xl bg-slate-950 border border-indigo-500/40 space-y-3 font-mono text-xs">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <span class="text-indigo-400 font-bold flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-indigo-400 animate-ping"></span>
+                        LIVE ASSIMILATION & VERIFICATION PIPELINE
+                    </span>
+                    <span id="pipeline-status-badge" class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold text-[10px]">VERIFIED</span>
+                </div>
+                <div id="pipeline-steps-container" class="space-y-2">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Workspace Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+            <!-- Left: Active Connected Applications (7 cols) -->
+            <div class="lg:col-span-7 space-y-6">
+                <div class="glass rounded-2xl p-6 border border-slate-800 space-y-4">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                        <div>
+                            <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                                <span>🏛️</span> Active Bank Application Mesh
+                            </h2>
+                            <p class="text-xs text-slate-400">
+                                Real-time inventory of all discovered applications, tools, and issue resolvers.
+                            </p>
+                        </div>
+                        <a href="/.well-known/agent.json" target="_blank" class="text-xs text-blue-400 hover:text-blue-300 font-mono underline">
+                            view /.well-known/agent.json
+                        </a>
+                    </div>
+
+                    <div class="space-y-4" id="agent-list-container">
+                        <!-- Agents populated dynamically -->
+                    </div>
+                </div>
+
+                <!-- Live Multi-App Simulator -->
+                <div class="glass rounded-2xl p-6 border border-blue-500/30 glow-accent space-y-3">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                            <span>🚀</span> End-to-End Autonomous Banking Event Simulator
+                        </h2>
+                        <span class="text-xs font-mono px-2.5 py-1 rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/30">
+                            Zero Manual Code
+                        </span>
+                    </div>
+                    <p class="text-xs text-slate-400">
+                        Trigger a real multi-department banking event. The Brain orchestrates across <strong>all</strong> connected apps (DOKA, SAP, Customer Portal, Mainframe, Moody's, Refinitiv, Outlook, Excel/PPT).
+                    </p>
+
+                    <div class="space-y-3">
+                        <textarea id="event-input" rows="2" class="w-full bg-slate-900/90 text-sm font-mono text-slate-200 border border-slate-700 rounded-lg p-3 focus:outline-none focus:border-blue-500">Examine L/C dossier DOS-2026-8831 for client DE-CORP-99214. Autonomously resolve any UCP 600 discrepancies, credit facility shortfalls, sanctions screenings, and executive reporting across all connected systems.</textarea>
+
+                        <button onclick="triggerSimulation()" id="sim-btn" class="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-semibold text-sm flex items-center justify-center gap-2 transition duration-200 shadow-lg shadow-indigo-500/20">
+                            <span id="btn-spinner" class="hidden animate-spin">⏳</span>
+                            <span>Execute Autonomous Mesh Resolution</span>
+                        </button>
+                    </div>
+
+                    <!-- Resolution Output Console -->
+                    <div id="resolution-console" class="hidden mt-4 p-4 rounded-xl bg-slate-950 border border-slate-800 font-mono text-xs space-y-3">
+                        <div class="text-slate-400 flex justify-between border-b border-slate-800 pb-2">
+                            <span class="text-emerald-400 font-bold flex items-center gap-1.5">
+                                <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                                AUDIT EXECUTION TRACE
+                            </span>
+                            <span id="exec-status" class="text-blue-400 font-bold">STATUS: COMPLETED</span>
+                        </div>
+                        <div id="steps-output" class="space-y-2 text-slate-300"></div>
+                        <div id="final-outcome-box" class="mt-3 p-3 bg-emerald-950/40 border border-emerald-500/30 rounded text-emerald-300"></div>
+                    </div>
+                </div>
+
+                <!-- 📋 Trade Finance Client Application Desk (Human Operations Simulator) -->
+                <div class="glass rounded-2xl p-6 border border-amber-500/30 space-y-4">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                        <div>
+                            <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                                <span>📋</span> Trade Finance Application Desk (Human Operations Simulator)
+                            </h2>
+                            <p class="text-xs text-slate-400">
+                                Ingest real-world Trade Finance application forms with or without human mistakes. Simulates an expert trade officer catching missing documents, credit line shortfalls, and typos under ICC UCP 600 rules.
+                            </p>
+                        </div>
+                        <span class="text-[10px] font-mono px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30 font-semibold self-start sm:self-auto">
+                            ICC UCP 600 & BaFin MaRisk
+                        </span>
+                    </div>
+
+                    <!-- Quick Scenario Buttons -->
+                    <div class="space-y-1.5">
+                        <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Select Pre-Filled Test Scenario:</div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <button type="button" onclick="loadTradeScenario('clean')" class="p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-emerald-500/40 text-left transition space-y-1">
+                                <div class="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                                    <span>✅</span> Case 1: Clean Application (No Mistakes)
+                                </div>
+                                <div class="text-[11px] text-slate-400 leading-tight">
+                                    All documents presented, credit limit adequate, zero discrepancies. Passes straight to issuance.
+                                </div>
+                            </button>
+                            <button type="button" onclick="loadTradeScenario('defective')" class="p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-amber-500/50 text-left transition space-y-1">
+                                <div class="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+                                    <span>⚠️</span> Case 2: Real-World Messy Application
+                                </div>
+                                <div class="text-[11px] text-slate-400 leading-tight">
+                                    Missing insurance cert, €50k credit line shortfall, invoice address typo. Dispatches email notice.
+                                </div>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Interactive Application Form Grid -->
+                    <form id="trade-app-form" onsubmit="submitTradeApp(event)" class="space-y-3 pt-2">
+                        <input type="hidden" id="trade-scenario-type" value="defective">
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-300 mb-1">Corporate Applicant (Borrower)</label>
+                                <input type="text" id="trade-applicant-name" value="DE-CORP-99214 Export GmbH" class="w-full bg-slate-900/90 text-xs font-mono text-slate-200 border border-slate-700 rounded-lg p-2.5 focus:outline-none focus:border-amber-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-amber-300 mb-1">
+                                    Client Notification Email (Recipient)
+                                    
+                                </label>
+                                <input type="email" id="trade-client-email" value="client@example.com" class="w-full bg-slate-900/90 text-xs font-mono text-amber-300 font-bold border border-amber-500/50 rounded-lg p-2.5 focus:outline-none focus:border-amber-400">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-300 mb-1">Beneficiary (Exporter)</label>
+                                <input type="text" id="trade-beneficiary-name" value="Milano Meccanica S.p.A. (Italy)" class="w-full bg-slate-900/90 text-xs font-mono text-slate-200 border border-slate-700 rounded-lg p-2.5 focus:outline-none focus:border-amber-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-300 mb-1">Requested L/C Value (EUR)</label>
+                                <input type="number" id="trade-amount-eur" value="450000" class="w-full bg-slate-900/90 text-xs font-mono text-slate-200 border border-slate-700 rounded-lg p-2.5 focus:outline-none focus:border-amber-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-300 mb-1">Current Trade Line Capacity (EUR)</label>
+                                <input type="number" id="trade-limit-eur" value="400000" class="w-full bg-slate-900/90 text-xs font-mono text-slate-200 border border-slate-700 rounded-lg p-2.5 focus:outline-none focus:border-amber-500">
+                            </div>
+                        </div>
+
+                        <!-- Real-World Cargo & Shipment Parameters -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-300 mb-1">Cargo / Goods Description</label>
+                                <input type="text" id="trade-goods" value="Photovoltaic Solar Modules 450W" class="w-full bg-slate-900/90 text-xs font-mono text-slate-200 border border-slate-700 rounded-lg p-2.5 focus:outline-none focus:border-amber-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-300 mb-1">Incoterms 2020 Delivery Terms</label>
+                                <select id="trade-incoterms" class="w-full bg-slate-900/90 text-xs font-mono text-slate-200 border border-slate-700 rounded-lg p-2.5 focus:outline-none focus:border-amber-500">
+                                    <option value="CIF Hamburg (Incoterms 2020)" selected>CIF Hamburg (Insurance Mandatory - Seller Provides)</option>
+                                    <option value="FOB Genoa (Incoterms 2020)">FOB Genoa (Buyer Provides Insurance)</option>
+                                    <option value="CFR Hamburg (Incoterms 2020)">CFR Hamburg (Cost & Freight)</option>
+                                    <option value="CIP Munich (Incoterms 2020)">CIP Munich (Carriage & Insurance Paid)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-300 mb-1">Port of Loading (Origin)</label>
+                                <input type="text" id="trade-pol" value="Port of Genoa, Italy" class="w-full bg-slate-900/90 text-xs font-mono text-slate-200 border border-slate-700 rounded-lg p-2.5 focus:outline-none focus:border-amber-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-300 mb-1">Port of Discharge (Destination)</label>
+                                <input type="text" id="trade-pod" value="Port of Hamburg, Germany" class="w-full bg-slate-900/90 text-xs font-mono text-slate-200 border border-slate-700 rounded-lg p-2.5 focus:outline-none focus:border-amber-500">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-300 mb-1">
+                                    Commercial Invoice Address
+                                    <span class="text-[10px] text-slate-400 font-normal ml-1">(Address on Invoice)</span>
+                                </label>
+                                <input type="text" id="trade-inv-addr" value="Via Dante 12, 20121 Milano" class="w-full bg-slate-900/90 text-xs font-mono text-slate-200 border border-slate-700 rounded-lg p-2.5 focus:outline-none focus:border-amber-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-300 mb-1">
+                                    Contract Specification Address
+                                    <span class="text-[10px] text-slate-400 font-normal ml-1">(Registered Address)</span>
+                                </label>
+                                <input type="text" id="trade-ctr-addr" value="Via Dante 14, 20121 Milano" class="w-full bg-slate-900/90 text-xs font-mono text-slate-200 border border-slate-700 rounded-lg p-2.5 focus:outline-none focus:border-amber-500">
+                            </div>
+                        </div>
+
+                        <!-- Documents Attached Checklist -->
+                        <div class="p-3 rounded-lg bg-slate-950/80 border border-slate-800 space-y-2">
+                            <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Document Checklist (UCP 600 Compliance Examination):</div>
+                            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs text-slate-300">
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input type="checkbox" id="doc-invoice" checked class="rounded border-slate-700 text-amber-500">
+                                    <span>Commercial Invoice</span>
+                                </label>
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input type="checkbox" id="doc-bol" checked class="rounded border-slate-700 text-amber-500">
+                                    <span>Bill of Lading</span>
+                                </label>
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input type="checkbox" id="doc-insurance" class="rounded border-slate-700 text-amber-500">
+                                    <span id="doc-insurance-label" class="text-amber-400 font-bold">Insurance Certificate (Missing!)</span>
+                                </label>
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input type="checkbox" id="doc-packing" checked class="rounded border-slate-700 text-amber-500">
+                                    <span>Packing List</span>
+                                </label>
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input type="checkbox" id="doc-origin" checked class="rounded border-slate-700 text-amber-500">
+                                    <span>Certificate of Origin</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <button type="submit" id="trade-examine-btn" class="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-600 via-orange-600 to-red-600 hover:from-amber-500 hover:to-orange-500 text-white font-semibold text-sm flex items-center justify-center gap-2 transition duration-200 shadow-lg shadow-orange-500/20">
+                            <span id="trade-spinner" class="hidden animate-spin">⏳</span>
+                            <span>⚡ Execute Human-Like Examination & Autonomous Discrepancy Resolution</span>
+                        </button>
+                    </form>
+
+                    <!-- Trade Examination Results Console -->
+                    <div id="trade-results-box" class="hidden pt-4 space-y-3 border-t border-slate-800 font-mono text-xs">
+                        <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                            <span class="text-amber-400 font-bold flex items-center gap-2">
+                                <span class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>
+                                EXAMINATION OUTCOME & MULTI-AGENT RESOLUTION
+                            </span>
+                            <span id="trade-verdict-badge" class="px-2.5 py-0.5 rounded text-[11px] font-bold"></span>
+                        </div>
+
+                        <!-- Discrepancies Table -->
+                        <div id="trade-discrepancies-container" class="space-y-2"></div>
+
+                        <!-- Email Notification Box -->
+                        <div id="trade-email-notice-card" class="p-3 rounded-lg bg-blue-950/40 border border-blue-500/40 space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs font-bold text-blue-300 flex items-center gap-2">
+                                    <span>📧</span> Client Email Discrepancy Notice
+                                </span>
+                                <span id="trade-email-badge" class="px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 text-[10px] font-bold">DISPATCHED</span>
+                            </div>
+                            <p id="trade-email-desc" class="text-[11px] text-slate-300 font-sans"></p>
+                            <div class="flex flex-wrap gap-2 pt-1">
+                                <a id="trade-eml-download-btn" href="/api/v1/dossier/email" class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-1.5 transition shadow">
+                                    <span>📥</span> Download Discrepancy Notice (.eml)
+                                </a>
+                                <a href="/api/v1/dossier/excel" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 transition shadow">
+                                    <span>📊</span> Download Excel Dossier (.xlsx)
+                                </a>
+                            </div>
+                        </div>
+
+                        <!-- Multi-Agent Resolution Timeline -->
+                        <div class="space-y-1.5 pt-2">
+                            <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Multi-Agent Action Ledger:</div>
+                            <div id="trade-resolution-steps" class="space-y-1.5"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Zero-Trust Vault & System Logs (5 cols) -->
+            <div class="lg:col-span-5 space-y-6">
+
+                <!-- Zero-Trust Vault Panel -->
+                <div class="glass rounded-2xl p-6 border border-slate-800 space-y-4">
+                    <div>
+                        <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                            <span>🔒</span> Zero-Trust Security Gate (Vault)
+                        </h2>
+                        <p class="text-xs text-slate-400">
+                            Sealed credentials provisioned for connected systems with department RBAC rules.
+                        </p>
+                    </div>
+
+                    <div class="space-y-2.5 text-xs" id="vault-creds-container">
+                        <!-- Loaded via JS -->
+                    </div>
+                </div>
+
+                <!-- Test Execution Modal / Box -->
+                <div id="test-call-box" class="hidden glass rounded-2xl p-6 border border-emerald-500/40 glow-emerald space-y-3">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-sm font-bold text-emerald-400 flex items-center gap-1.5">
+                            <span>🧪</span> Dynamic Universal Call Output
+                        </h3>
+                        <button onclick="document.getElementById('test-call-box').classList.add('hidden')" class="text-xs text-slate-400 hover:text-white">✕ Close</button>
+                    </div>
+                    <div id="test-call-content" class="bg-slate-950 p-3 rounded-lg font-mono text-[11px] text-slate-300 overflow-x-auto max-h-60"></div>
+                </div>
+
+                <!-- How It Works Flow -->
+                <div class="glass rounded-2xl p-6 border border-slate-800 space-y-3">
+                    <h2 class="text-sm font-bold text-white flex items-center gap-2">
+                        <span>🧩</span> The Self-Assembling Loop
+                    </h2>
+                    <div class="space-y-2 text-xs">
+                        <div class="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800">
+                            <div class="font-bold text-blue-400">1. Instant Introspection</div>
+                            <div class="text-slate-400 mt-0.5">Scans OpenAPI/OData or green-screen layout; detects all endpoints.</div>
+                        </div>
+                        <div class="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800">
+                            <div class="font-bold text-indigo-400">2. Semantic Domain Mapping</div>
+                            <div class="text-slate-400 mt-0.5">Gemini tags capabilities in <code class="text-indigo-300">can_resolve_issues</code>.</div>
+                        </div>
+                        <div class="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800">
+                            <div class="font-bold text-purple-400">3. Specialist Spawning & A2A Card</div>
+                            <div class="text-slate-400 mt-0.5">Publishes A2A Agent Card to <code class="text-purple-300">/.well-known/agent.json</code>.</div>
+                        </div>
+                        <div class="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800">
+                            <div class="font-bold text-emerald-400">4. Autonomous Mesh Teamwork</div>
+                            <div class="text-slate-400 mt-0.5">Agents message each other and execute dynamic calls with zero glue code.</div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <script>
+        const PRESETS = {
+            moodys: {
+                name: "Moody's Analytics Credit & Risk Scoring",
+                url: "https://api.moodys.com/v2",
+                auth: "API_KEY",
+                token: "moodys_live_sec_token_9918",
+                endpoints: "/api/v2/ratings/counterparty"
+            },
+            refinitiv: {
+                name: "Refinitiv World-Check Sanctions & AML",
+                url: "https://api.refinitiv.com/world-check/v1",
+                auth: "Bearer",
+                token: "refinitiv_oauth2_token_8812",
+                endpoints: "/api/v1/sanctions/screen-entity"
+            },
+            outlook_teams: {
+                name: "Microsoft Outlook & Teams Communicator",
+                url: "https://graph.microsoft.com/v1.0",
+                auth: "Bearer",
+                token: "ms_graph_token_live_7719",
+                endpoints: "/api/v1/mail/dispatch-executive-summary, /api/v1/teams/meeting-transcription-summary"
+            },
+            office_excel_ppt: {
+                name: "Office Excel & PowerPoint Automation Engine",
+                url: "https://office-engine.internal.bank.example",
+                auth: "Bearer",
+                token: "office_sec_token_5521",
+                endpoints: "/api/v1/office/build-financial-model, /api/v1/office/generate-executive-presentation"
+            },
+            swift: {
+                name: "SWIFT Alliance Lite2 Payment Gateway",
+                url: "https://swift-alliance.payments.internal.bank.example",
+                auth: "mTLS",
+                token: "sha256_swift_alliance_cert",
+                endpoints: "/api/v1/swift/send-mt103, /api/v1/swift/send-mt202, /api/v1/swift/gpi-track"
+            },
+            bloomberg: {
+                name: "Bloomberg Terminal Market Data API",
+                url: "https://api.bloomberg.com/market-data/v3",
+                auth: "API_KEY",
+                token: "BBG_APIKEY_demo_terminal_2026",
+                endpoints: "/api/v2/market-data/fx-spot, /api/v2/market-data/yield-curve, /api/v2/market-data/bond-valuation"
+            },
+            wolters_kluwer: {
+                name: "Wolters Kluwer OneSumX Regulatory Reporting",
+                url: "https://onesumx.regulatory.internal.bank.example",
+                auth: "Bearer",
+                token: "WK_BEARER_onesumx_prod_2026",
+                endpoints: "/api/v1/regulatory/capital-adequacy, /api/v1/regulatory/rwa-calculation"
+            },
+            finastra: {
+                name: "Finastra Fusion Treasury Management",
+                url: "https://fusion.treasury.internal.bank.example",
+                auth: "Bearer",
+                token: "FIN_BEARER_fusion_prod_2026",
+                endpoints: "/api/v1/treasury/liquidity-position, /api/v1/treasury/fx-hedge"
+            },
+            avaloq: {
+                name: "Avaloq Wealth Management Platform",
+                url: "https://avaloq.wealth.internal.bank.example",
+                auth: "Bearer",
+                token: "AVQ_BEARER_wealth_prod_2026",
+                endpoints: "/api/v1/wealth/portfolio-summary, /api/v1/wealth/kyc-aml-check"
+            },
+            dtcc: {
+                name: "DTCC Global Trade Repository",
+                url: "https://gtr.dtcc.com/api/v2",
+                auth: "API_KEY",
+                token: "DTCC_APIKEY_demo_reporting_2026",
+                endpoints: "/api/v1/trade-repository/emir-report, /api/v1/trade-repository/position-reconciliation"
+            },
+            ebics: {
+                name: "EBICS Multi-Banking Gateway",
+                url: "https://ebics.tradefinancing.internal/ebics-gateway/v3",
+                auth: "Bearer",
+                token: "EBICS_A006_DMB_PARTNER_KEY_99214",
+                endpoints: "/api/v3/ebics/upload-pain001, /api/v3/ebics/fetch-camt053, /api/v3/ebics/verify-subscriber-keys"
+            },
+            custom: {
+                name: "",
+                url: "",
+                auth: "Bearer",
+                token: "",
+                endpoints: ""
+            }
+        };
+
+        function applyPreset(key) {
+            // preset buttons connect the built-in SIMULATED demo systems; editing the URL switches to a live connection
+            document.getElementById('app-preset-type').value = key;
+            const specInput = document.getElementById('app-spec-url-input');
+            if (specInput) specInput.value = '';
+            const p = PRESETS[key];
+            if (!p) return;
+            document.getElementById('app-name-input').value = p.name;
+            document.getElementById('app-url-input').value = p.url;
+            document.getElementById('app-auth-select').value = p.auth;
+            document.getElementById('app-token-input').value = p.token;
+            document.getElementById('app-endpoints-input').value = p.endpoints;
+        }
+
+        async function connectNewApp(event) {
+            event.preventDefault();
+            const btn = document.getElementById('connect-btn');
+            const spinner = document.getElementById('connect-spinner');
+            const pipelineCard = document.getElementById('pipeline-card');
+            const pipelineSteps = document.getElementById('pipeline-steps-container');
+
+            const payload = {
+                app_name: document.getElementById('app-name-input').value.trim(),
+                base_url: document.getElementById('app-url-input').value.trim(),
+                spec_url: (document.getElementById('app-spec-url-input') || {value: ''}).value.trim(),
+                auth_type: document.getElementById('app-auth-select').value,
+                token: document.getElementById('app-token-input').value.trim(),
+                preset_type: document.getElementById('app-preset-type').value,
+                custom_endpoints: document.getElementById('app-endpoints-input').value.split(',').map(s => s.trim()).filter(Boolean)
+            };
+
+            btn.disabled = true;
+            spinner.classList.remove('hidden');
+            pipelineCard.classList.remove('hidden');
+            pipelineSteps.innerHTML = '<div class="text-blue-400">Initiating Verification & Assimilation Pipeline...</div>';
+
+            try {
+                const res = await fetch('/api/v1/apps/connect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+
+                if (data.status === 'SUCCESS') {
+                    pipelineSteps.innerHTML = '';
+                    data.pipeline.forEach((p, idx) => {
+                        const stepEl = document.createElement('div');
+                        stepEl.className = 'p-2 rounded bg-slate-900 border border-slate-800 flex items-start justify-between gap-2';
+                        stepEl.innerHTML = `
+                            <div>
+                                <span class="text-emerald-400 font-bold">✓ Step ${idx + 1}: ${p.step}</span>
+                                <div class="text-slate-300 text-[11px] mt-0.5">${p.detail}</div>
+                            </div>
+                            <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-bold">${p.status}</span>
+                        `;
+                        pipelineSteps.appendChild(stepEl);
+                    });
+
+                    const extra = document.createElement('div');
+                    extra.className = 'p-2 rounded bg-slate-950 border border-indigo-500/40 text-[11px] text-slate-200';
+                    extra.innerHTML = `${data.mode === 'LIVE' ? '🔗 Live application' : '🧪 Simulated demo system'} ·
+                        <a class="text-blue-400 underline" href="${data.console_url}">Open generated console</a>` +
+                        (data.binding ? `<div class="mt-1">Trade engine: <b>${data.binding.status}</b> – ${data.binding.reason}</div>` : '');
+                    pipelineSteps.appendChild(extra);
+
+                    // Reload ecosystem
+                    await loadEcosystem();
+                } else {
+                    pipelineSteps.innerHTML = '';
+                    if (data.pipeline && data.pipeline.length) {
+                        data.pipeline.forEach((p, idx) => {
+                            const isFail = p.status.includes('REJECTED');
+                            const stepEl = document.createElement('div');
+                            stepEl.className = `p-2 rounded bg-slate-900 border ${isFail ? 'border-red-500/50' : 'border-slate-800'} flex items-start justify-between gap-2`;
+                            stepEl.innerHTML = `
+                                <div>
+                                    <span class="${isFail ? 'text-red-400' : 'text-emerald-400'} font-bold">${isFail ? '✗' : '✓'} Step ${idx + 1}: ${p.step}</span>
+                                    <div class="text-slate-300 text-[11px] mt-0.5">${p.detail}</div>
+                                </div>
+                                <span class="px-2 py-0.5 rounded ${isFail ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'} text-[10px] font-bold">${p.status}</span>
+                            `;
+                            pipelineSteps.appendChild(stepEl);
+                        });
+                    } else {
+                        pipelineSteps.innerHTML = `<div class="p-2.5 rounded bg-red-950/80 border border-red-500 text-red-300 text-xs font-semibold">❌ ${data.message}</div>`;
+                    }
+                }
+            } catch (err) {
+                pipelineSteps.innerHTML = `<div class="text-red-400">Connection failed: ${err}</div>`;
+            } finally {
+                btn.disabled = false;
+                spinner.classList.add('hidden');
+            }
+        }
+
+        async function disconnectApp(agentId) {
+            if (!confirm(`Are you sure you want to disconnect agent '${agentId}' from the bank mesh?`)) return;
+            try {
+                const res = await fetch(`/api/v1/apps/${agentId}`, { method: 'DELETE' });
+                const data = await res.json();
+                alert(data.message);
+                loadEcosystem();
+            } catch (err) {
+                alert('Disconnect failed: ' + err);
+            }
+        }
+
+        async function testPingApp(agentId) {
+            const testBox = document.getElementById('test-call-box');
+            const testContent = document.getElementById('test-call-content');
+            testBox.classList.remove('hidden');
+            testContent.innerHTML = `<div class="text-blue-400">Pinging agent '${agentId}' via Universal Dynamic Executor...</div>`;
+
+            try {
+                const res = await fetch(`/api/v1/apps/${agentId}/test`, { method: 'POST' });
+                const data = await res.json();
+                const code = data.status_code || (data.execution_result && data.execution_result.status_code) || 200;
+                
+                let badge = '';
+                if (code === 401 || code === 403 || data.status === 'AUTH_FAILED') {
+                    badge = `<div class="mb-2 p-2.5 rounded-lg bg-red-950/80 border border-red-500/50 text-red-300 text-xs font-semibold flex items-center gap-2">
+                        <span>❌</span> <span>HTTP ${code} ACCESS DENIED / UNAUTHORIZED: The target bank gateway rejected the API key or digital certificate!</span>
+                    </div>`;
+                } else if (code >= 200 && code < 300) {
+                    badge = `<div class="mb-2 p-2.5 rounded-lg bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 text-xs font-semibold flex items-center gap-2">
+                        <span>✅</span> <span>HTTP ${code} SUCCESS: Target bank service accepted credentials and executed successfully.</span>
+                    </div>`;
+                }
+                testContent.innerHTML = badge + `<pre class="text-xs overflow-x-auto">${JSON.stringify(data, null, 2)}</pre>`;
+            } catch (err) {
+                testContent.innerHTML = `<span class="text-red-400">Test call failed: ${err}</span>`;
+            }
+        }
+
+        async function loadEcosystem() {
+            try {
+                const res = await fetch('/api/v1/ecosystem');
+                const data = await res.json();
+
+                document.getElementById('stat-agents').innerText = data.total_agents;
+                document.getElementById('stat-creds').innerText = data.vault_credentials.length;
+                document.getElementById('stat-tools').innerText = data.mcp_tools.length;
+
+                const geminiBadge = document.getElementById('gemini-status-badge');
+                const gm = data.gemini || {};
+                if (gm.configured && gm.last_gemini_error && !gm.apps_analysed_by_gemini) {
+                    geminiBadge.className = 'flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30';
+                    geminiBadge.innerHTML = 'Gemini: key set but calls FAILING – rules engine used';
+                    geminiBadge.title = gm.last_gemini_error;
+                } else if (gm.configured) {
+                    geminiBadge.className = 'flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30';
+                    geminiBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span> Gemini (${gm.model}): ${gm.apps_analysed_by_gemini} apps analysed`;
+                } else {
+                    geminiBadge.className = 'flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/30';
+                    geminiBadge.innerHTML = 'Brain: Semantic Engine';
+                }
+
+                // Populate agents
+                const container = document.getElementById('agent-list-container');
+                container.innerHTML = '';
+
+                data.agents.forEach(agent => {
+                    let badgeClass = 'badge-tf';
+                    if (agent.banking_department === 'CREDIT_RISK') badgeClass = 'badge-credit';
+                    if (agent.banking_department === 'CLIENT_ENGAGEMENT' || agent.banking_department === 'WEALTH_MANAGEMENT') badgeClass = 'badge-portal';
+                    if (agent.banking_department === 'COMPLIANCE_AML' || agent.banking_department === 'REGULATORY_REPORTING' || agent.banking_department === 'TRADE_REPORTING') badgeClass = 'badge-aml';
+                    if (agent.banking_department === 'OFFICE_COMMUNICATION' || agent.banking_department === 'FINANCIAL_REPORTING') badgeClass = 'badge-office';
+                    if (agent.banking_department === 'CORE_BANKING') badgeClass = 'badge-core';
+                    if (agent.banking_department === 'PAYMENTS_SWIFT') badgeClass = 'badge-tf';
+                    if (agent.banking_department === 'TREASURY_MARKETS' || agent.banking_department === 'TREASURY_MANAGEMENT') badgeClass = 'badge-credit';
+
+                    const card = document.createElement('div');
+                    card.className = 'p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3';
+                    card.innerHTML = `
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div class="flex items-center gap-2">
+                                <span class="font-bold text-white text-sm">${agent.application_name}</span>
+                                <span class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold ${badgeClass}">${agent.banking_department}</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-[11px] font-mono text-slate-400">${agent.agent_id}</span>
+                                <a href="/apps/${agent.agent_id}" class="px-2 py-0.5 rounded bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 text-[10px] font-bold border border-indigo-500/30 transition">Console</a>
+                                <button onclick="testPingApp('${agent.agent_id}')" class="px-2 py-0.5 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-[10px] font-bold border border-emerald-500/30 transition">Test Ping</button>
+                                <button onclick="disconnectApp('${agent.agent_id}')" class="px-2 py-0.5 rounded bg-red-500/10 hover:bg-red-500/20 text-red-400 text-[10px] font-bold border border-red-500/30 transition">Disconnect</button>
+                            </div>
+                        </div>
+                        <p class="text-xs text-slate-300 leading-relaxed">${agent.system_instruction}</p>
+                        <div class="border-t border-slate-800/80 pt-2 space-y-1.5">
+                            <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Discovered Executable Tools (${agent.discovered_tools.length}):</div>
+                            ${agent.discovered_tools.map(t => `
+                                <div class="p-2 rounded bg-slate-950/70 border border-slate-850 flex flex-col gap-1 text-[11px]">
+                                    <div class="flex items-center justify-between">
+                                        <span class="font-mono text-blue-400 font-semibold">${t.http_method} ${t.endpoint_path}</span>
+                                        <span class="text-slate-400 font-mono text-[10px]">${t.tool_name}</span>
+                                    </div>
+                                    <div class="text-slate-400 text-[11px]">${t.description}</div>
+                                    <div class="flex flex-wrap gap-1 mt-1">
+                                        ${t.can_resolve_issues.map(iss => `<span class="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[9px] border border-emerald-500/20">Fixes: ${iss}</span>`).join('')}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                    container.appendChild(card);
+                });
+
+                // Populate Vault
+                const vaultContainer = document.getElementById('vault-creds-container');
+                vaultContainer.innerHTML = '';
+                data.vault_credentials.forEach(c => {
+                    const el = document.createElement('div');
+                    el.className = 'p-3 rounded-lg bg-slate-900/80 border border-slate-800 flex items-center justify-between';
+                    el.innerHTML = `
+                        <div>
+                            <div class="font-mono text-white text-xs">${c.app_id}</div>
+                            <div class="text-slate-400 text-[10px]">${c.base_url}</div>
+                        </div>
+                        <div class="text-right">
+                            <span class="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 font-mono text-[10px] border border-blue-500/20">${c.auth_type}</span>
+                            <div class="text-[9px] text-emerald-400 mt-0.5">Sealed & Audited</div>
+                        </div>
+                    `;
+                    vaultContainer.appendChild(el);
+                });
+
+            } catch (err) {
+                console.error("Failed to load ecosystem", err);
+            }
+        }
+
+        async function triggerSimulation() {
+            const btn = document.getElementById('sim-btn');
+            const spinner = document.getElementById('btn-spinner');
+            const consoleBox = document.getElementById('resolution-console');
+            const stepsOutput = document.getElementById('steps-output');
+            const outcomeBox = document.getElementById('final-outcome-box');
+            const problem = document.getElementById('event-input').value;
+
+            btn.disabled = true;
+            spinner.classList.remove('hidden');
+            consoleBox.classList.remove('hidden');
+            stepsOutput.innerHTML = '<div class="text-blue-400">→ Initiating Autonomous Mesh Orchestration across all connected applications...</div>';
+            outcomeBox.innerHTML = '';
+
+            try {
+                const res = await fetch('/api/v1/orchestrate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ problem: problem })
+                });
+                const trace = await res.json();
+
+                stepsOutput.innerHTML = '';
+                trace.steps.forEach(step => {
+                    const row = document.createElement('div');
+                    row.className = 'p-2.5 rounded bg-slate-900 border border-slate-800 space-y-1';
+                    row.innerHTML = `
+                        <div class="flex items-center justify-between text-[11px]">
+                            <span class="text-blue-400 font-bold">Step ${step.step_number}: [${step.department}] ${step.executing_agent_id}</span>
+                            <span class="text-emerald-400 font-bold">✓ ${step.status}</span>
+                        </div>
+                        <div class="text-slate-200 text-xs">${step.action}</div>
+                        <div class="text-slate-400 text-[10px] font-mono bg-slate-950 p-1.5 rounded overflow-x-auto">Result: ${JSON.stringify(step.result)}</div>
+                    `;
+                    stepsOutput.appendChild(row);
+                });
+
+                outcomeBox.innerHTML = `<strong>FINAL RESOLUTION:</strong><br>${trace.final_outcome}`;
+                if (trace.excel_download_url) {
+                    outcomeBox.innerHTML += `
+                        <div class="mt-4 pt-3 border-t border-emerald-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <span class="text-xs font-sans text-emerald-300">📊 Official Microsoft Excel (.xlsx) banking ledger saved to Desktop.</span>
+                            <a href="${trace.excel_download_url}" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 transition shadow">
+                                <span>📥</span> Download Excel Dossier (.xlsx)
+                            </a>
+                        </div>
+                    `;
+                }
+            } catch (err) {
+                stepsOutput.innerHTML = `<div class="text-red-400">Error executing simulation: ${err}</div>`;
+            } finally {
+                btn.disabled = false;
+                spinner.classList.add('hidden');
+            }
+        }
+
+        async function saveApiKey() {
+            const key = document.getElementById('key-input').value.trim();
+            if (!key) return;
+            const res = await fetch('/api/v1/config/key', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ api_key: key })
+            });
+            const data = await res.json();
+            if (data.status === 'SUCCESS') {
+                alert('Gemini API Key activated!');
+                loadEcosystem();
+            }
+        }
+
+        function loadTradeScenario(type) {
+            document.getElementById('trade-scenario-type').value = type;
+            const insBox = document.getElementById('doc-insurance');
+            const insLabel = document.getElementById('doc-insurance-label');
+            const limitInput = document.getElementById('trade-limit-eur');
+            const invAddr = document.getElementById('trade-inv-addr');
+            const ctrAddr = document.getElementById('trade-ctr-addr');
+            
+            if (type === 'clean') {
+                insBox.checked = true;
+                insLabel.className = 'text-emerald-400 font-bold';
+                insLabel.innerText = 'Insurance Certificate (Attached & Valid)';
+                limitInput.value = '500000';
+                if (invAddr) invAddr.value = 'Via Dante 14, 20121 Milano';
+                if (ctrAddr) ctrAddr.value = 'Via Dante 14, 20121 Milano';
+            } else {
+                insBox.checked = false;
+                insLabel.className = 'text-amber-400 font-bold';
+                insLabel.innerText = 'Insurance Certificate (Missing!)';
+                limitInput.value = '400000';
+                if (invAddr) invAddr.value = 'Via Dante 12, 20121 Milano';
+                if (ctrAddr) ctrAddr.value = 'Via Dante 14, 20121 Milano';
+            }
+        }
+
+        async function submitTradeApp(event) {
+            event.preventDefault();
+            const btn = document.getElementById('trade-examine-btn');
+            const spinner = document.getElementById('trade-spinner');
+            const resultsBox = document.getElementById('trade-results-box');
+            const badge = document.getElementById('trade-verdict-badge');
+            const discContainer = document.getElementById('trade-discrepancies-container');
+            const emailCard = document.getElementById('trade-email-notice-card');
+            const emailDesc = document.getElementById('trade-email-desc');
+            const stepsContainer = document.getElementById('trade-resolution-steps');
+
+            btn.disabled = true;
+            spinner.classList.remove('hidden');
+            resultsBox.classList.remove('hidden');
+            discContainer.innerHTML = '<div class="text-blue-400">Autonomous Brain is performing cognitive examination under ICC UCP 600 rules & checking credit lines...</div>';
+            stepsContainer.innerHTML = '';
+
+            const payload = {
+                applicant_name: document.getElementById('trade-applicant-name').value.trim(),
+                client_email: document.getElementById('trade-client-email').value.trim(),
+                beneficiary_name: document.getElementById('trade-beneficiary-name').value.trim(),
+                goods_description: (document.getElementById('trade-goods') ? document.getElementById('trade-goods').value.trim() : 'Photovoltaic Solar Modules 450W'),
+                incoterms: (document.getElementById('trade-incoterms') ? document.getElementById('trade-incoterms').value.trim() : 'CIF Hamburg (Incoterms 2020)'),
+                port_of_loading: (document.getElementById('trade-pol') ? document.getElementById('trade-pol').value.trim() : 'Port of Genoa, Italy'),
+                port_of_discharge: (document.getElementById('trade-pod') ? document.getElementById('trade-pod').value.trim() : 'Port of Hamburg, Germany'),
+                invoice_address: (document.getElementById('trade-inv-addr') ? document.getElementById('trade-inv-addr').value.trim() : 'Via Dante 12, 20121 Milano'),
+                contract_address: (document.getElementById('trade-ctr-addr') ? document.getElementById('trade-ctr-addr').value.trim() : 'Via Dante 14, 20121 Milano'),
+                lc_amount_eur: parseFloat(document.getElementById('trade-amount-eur').value) || 450000,
+                available_trade_line_eur: parseFloat(document.getElementById('trade-limit-eur').value) || 400000,
+                scenario_type: document.getElementById('trade-scenario-type').value,
+                documents: {
+                    commercial_invoice: document.getElementById('doc-invoice').checked,
+                    bill_of_lading: document.getElementById('doc-bol').checked,
+                    insurance_certificate: document.getElementById('doc-insurance').checked,
+                    packing_list: document.getElementById('doc-packing').checked,
+                    certificate_of_origin: document.getElementById('doc-origin').checked
+                }
+            };
+
+            try {
+                const res = await fetch('/api/v1/trade/examine-application', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+
+                if (data.status === 'SUCCESS') {
+                    if (data.total_discrepancies_found > 0) {
+                        badge.className = 'px-2.5 py-0.5 rounded text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40';
+                        badge.innerText = `⚠️ ${data.total_discrepancies_found} DISCREPANCIES DETECTED & AUTONOMOUSLY RESOLVED`;
+                    } else {
+                        badge.className = 'px-2.5 py-0.5 rounded text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+                        badge.innerText = '✅ 100% CLEAN PRESENTATION (STP PASSED)';
+                    }
+
+                    // Render Discrepancies Table
+                    discContainer.innerHTML = '';
+                    if (data.discrepancies && data.discrepancies.length) {
+                        data.discrepancies.forEach((d, idx) => {
+                            const dEl = document.createElement('div');
+                            dEl.className = 'p-2.5 rounded bg-slate-900 border border-red-500/40 space-y-1';
+                            dEl.innerHTML = `
+                                <div class="flex items-center justify-between text-[11px]">
+                                    <span class="text-red-400 font-bold">#${idx+1} [${d.code}] ${d.finding}</span>
+                                    <span class="text-slate-400 text-[10px] font-mono">${d.rule}</span>
+                                </div>
+                                <div class="text-slate-300 text-xs">${d.description}</div>
+                                <div class="text-emerald-400 text-[11px] font-semibold bg-emerald-950/40 p-1.5 rounded">⚡ Autonomous Remedy: ${d.remedy}</div>
+                            `;
+                            discContainer.appendChild(dEl);
+                        });
+                    } else {
+                        discContainer.innerHTML = '<div class="p-2.5 rounded bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs font-semibold">✓ Zero discrepancies found. All presented transport documents strictly comply with UCP 600 standards.</div>';
+                    }
+
+                    // Render Email Card
+                    if (data.email_notice_dispatched) {
+                        emailCard.classList.remove('hidden');
+                        emailDesc.innerHTML = `Official formal ICC UCP 600 Discrepancy & Waiver Notice has been generated and dispatched to <strong>${data.email_recipient}</strong>. RFC 822 .eml file is saved to Desktop.`;
+                    } else {
+                        emailCard.classList.remove('hidden');
+                        emailDesc.innerHTML = `Clean presentation approved. Issuance confirmation dispatched to <strong>${data.client_email}</strong>.`;
+                    }
+
+                    // Render Multi-Agent Steps
+                    stepsContainer.innerHTML = '';
+                    data.resolution_steps.forEach(s => {
+                        const sEl = document.createElement('div');
+                        sEl.className = 'p-2 rounded bg-slate-900 border border-slate-800 flex items-start justify-between gap-2 text-[11px]';
+                        sEl.innerHTML = `
+                            <div>
+                                <span class="text-blue-400 font-bold">Step ${s.step}: [${s.domain}] ${s.agent}</span>
+                                <div class="text-slate-300 mt-0.5">${s.detail}</div>
+                            </div>
+                            <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-bold">${s.status}</span>
+                        `;
+                        stepsContainer.appendChild(sEl);
+                    });
+
+                    // Refresh global ecosystem
+                    loadEcosystem();
+                } else {
+                    discContainer.innerHTML = `<div class="text-red-400">Error: ${data.message}</div>`;
+                }
+            } catch (err) {
+                discContainer.innerHTML = `<div class="text-red-400">Examination failed: ${err}</div>`;
+            } finally {
+                btn.disabled = false;
+                spinner.classList.add('hidden');
+            }
+        }
+
+        // Initial Load
+        loadEcosystem();
+    </script>
+</body>
+</html>

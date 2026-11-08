@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trade Finance Workbench</title>
+<link rel="stylesheet" href="/assets/portal.css">
+</head>
+<body>
+
+<!-- ============================================================ sign in -->
+<div id="login" class="login hidden">
+  <div class="box">
+    <div class="tiny muted" id="lBank"></div>
+    <h1 style="margin-top:4px">Trade Finance Workbench</h1>
+    <p class="muted" style="margin-top:6px">Your daily work in one place: new applications, decisions, transactions and customers - explained in plain words.</p>
+    <div id="lDemo" class="hidden">
+      <div class="row between" style="margin-top:22px"><h3>Who are you?</h3><span class="tag">DEMO</span></div>
+      <div class="pick" id="lStaff"></div>
+    </div>
+    <div id="lKey" class="hidden" style="margin-top:22px">
+      <label class="f"><span>Your personal access key</span><input type="password" id="lKeyInput" autocomplete="off"></label>
+      <button class="btn big" style="margin-top:14px;width:100%" id="lKeyBtn">Sign in</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ app -->
+<div id="app" class="hidden">
+  <div class="topbar">
+    <div class="brand"><div class="logo">&#127974;</div><div><span id="tBank"></span><small>Trade Finance Workbench</small></div></div>
+    <div class="who"><span class="chip" id="tDate"></span><span id="tUser" class="bold"></span><button class="link" id="help">? Glossary</button><button class="link" id="logout">Sign out</button></div>
+  </div>
+  <div class="shell">
+    <nav class="side" id="side">
+      <button data-v="today" class="active"><span class="ico">&#127968;</span>Today</button>
+      <button data-v="decisions"><span class="ico">&#9878;</span>Decisions<span class="badge hidden" id="bDec"></span></button>
+      <button data-v="applications"><span class="ico">&#128229;</span>Applications</button>
+      <button data-v="deals"><span class="ico">&#128193;</span>Transactions</button>
+      <button data-v="customers"><span class="ico">&#127970;</span>Customers</button>
+      <button data-v="new"><span class="ico">&#10133;</span>New application</button>
+      <button data-v="reports"><span class="ico">&#128202;</span>Reports</button>
+      <hr>
+      <div class="foot">For IT and specialists:<br><a href="/trade">Technical console</a><br><a href="/">Integration dashboard</a></div>
+    </nav>
+    <main id="view"></main>
+  </div>
+</div>
+
+<script src="/assets/portal.js"></script>
+<script>
+const S = { me: null, view: "today", hash: "", product: null, customers: [], dealFilter: "all", q: "" };
+const $ = (id) => document.getElementById(id);
+const V = () => $("view");
+const GLOSSARY = [
+  ["Letter of credit (LC)", "The bank promises a seller to pay, as soon as the seller shows the agreed documents (invoice, bill of lading...). Rules: ICC UCP 600."],
+  ["Guarantee", "The bank promises to pay the beneficiary if our client does not fulfil a contract. Rules: ICC URDG 758."],
+  ["Surety (Buergschaft)", "German-law version of a guarantee (BGB 765 ff.), often for construction, rent deposits or customs."],
+  ["Documentary collection", "The bank sends shipping documents to the buyer's bank, which hands them over only against payment or acceptance. Rules: ICC URC 522."],
+  ["Discrepancy", "A difference between the documents presented and the terms of the credit (e.g. wrong amount, late shipment). The client may accept (waive) it."],
+  ["SWIFT / MT700, MT760", "The secure message network between banks. MT700 issues a letter of credit, MT760 a guarantee, MT756 advises a payment."],
+  ["KYC", "Know Your Customer: the bank's identity file on a client. It must be valid before we do business."],
+  ["Sanctions check", "Every name, country, ship and goods description is compared with the EU and US sanctions lists. Possible matches go to Compliance."],
+  ["Credit limit", "The maximum amount of risk the bank has approved for a client per product. Each transaction uses part of it until it is finished."],
+  ["Four-eyes / maker-checker", "High-risk approvals need two different people, and the person who entered a transaction cannot approve it."],
+  ["Fingerprint (SHA-256)", "A code calculated from a file. If one byte of the file changes, the code changes - this proves a document was never altered."],
+  ["Incoterms", "Standard delivery terms (FOB, CIF, ...) that say who pays transport and insurance."],
+];
+
+async function start() {
+  const info = await P.api("/bank/login-info");
+  $("lBank").textContent = info.bank_name;
+  const saved = P.load("tf_staff");
+  if (saved) { P.headers = saved; try { await enter(); return; } catch (e) { P.save("tf_staff", null); P.headers = {}; } }
+  $("login").classList.remove("hidden");
+  if (info.demo) {
+    $("lDemo").classList.remove("hidden");
+    $("lStaff").innerHTML = info.demo_staff.map((s) => `<button data-n="${P.esc(s.name)}"><span><b>${P.esc(s.name)}</b><br><span class="tiny muted">${P.esc(s.job)}</span></span><span>&rarr;</span></button>`).join("");
+    $("lStaff").onclick = async (e) => { const b = e.target.closest("[data-n]"); if (!b) return; P.headers = { "X-Staff-Name": b.dataset.n }; await signIn(); };
+  } else {
+    $("lKey").classList.remove("hidden");
+    $("lKeyBtn").onclick = async () => { P.headers = { "X-API-Key": $("lKeyInput").value.trim() }; await signIn(); };
+  }
+}
+async function signIn() { try { await enter(); P.save("tf_staff", P.headers); } catch (e) { P.toast(e.message, "err"); } }
+async function enter() {
+  S.me = await P.api("/api/v1/staff/me");
+  $("login").classList.add("hidden"); $("app").classList.remove("hidden");
+  $("tBank").textContent = S.me.bank_name; $("tDate").textContent = "Business date " + P.date(S.me.business_date);
+  $("tUser").textContent = S.me.name + (S.me.roles[0] !== "DEMO" ? " (" + S.me.roles.join(", ").toLowerCase() + ")" : "");
+  route();
+}
+$("logout").onclick = () => { P.save("tf_staff", null); P.headers = {}; location.hash = ""; location.reload(); };
+$("help").onclick = () => P.modal(`<div class="row between"><h2>Glossary</h2><button class="btn sec small" data-close>Close</button></div>
+  <div class="stack-s" style="margin-top:14px">${GLOSSARY.map(([k, v]) => `<div><b>${P.esc(k)}</b><p class="small muted">${P.esc(v)}</p></div>`).join("")}</div>`);
+$("side").onclick = (e) => { const b = e.target.closest("[data-v]"); if (b) go(b.dataset.v); };
+function setNav(v) { document.querySelectorAll("#side [data-v]").forEach((b) => b.classList.toggle("active", b.dataset.v === v)); }
+function route() { const h = location.hash.slice(1); if (h.startsWith("deal/")) openDeal(decodeURIComponent(h.slice(5))); else go(h || "today"); }
+window.addEventListener("hashchange", () => { if (S.me && location.hash.slice(1) !== S.hash) route(); });
+async function go(v) {
+  S.view = v; S.hash = v; location.hash = v; setNav(v);
+  V().innerHTML = `<div class="empty">Loading...</div>`;
+  try { await ({ today, decisions, applications, deals, customers, new: newApp, reports }[v] || today)(); }
+  catch (e) { V().innerHTML = `<div class="notice red">${P.esc(e.message)}</div>`; }
+  refreshBadge();
+}
+async function refreshBadge() {
+  try { const t = await P.api("/api/v1/staff/tasks"); const n = t.decisions.length;
+    $("bDec").textContent = n; $("bDec").classList.toggle("hidden", !n); return t; } catch (e) { return null; }
+}
+
+// ------------------------------------------------------------------ today
+async function today() {
+  const [o, t] = await Promise.all([P.api("/api/v1/staff/overview"), P.api("/api/v1/staff/tasks")]);
+  const first = (S.me.name || "").split(" ")[0];
+  const health = [
+    o.books_balanced ? `<span class="pill green">Accounts balanced</span>` : `<span class="pill red">Accounts NOT balanced - call IT</span>`,
+    o.outbox_failed ? `<span class="pill red">${o.outbox_failed} outgoing message(s) failed</span>` : `<span class="pill green">All messages sent</span>`,
+    o.system_problems ? `<span class="pill amber">${o.system_problems} system problem(s) recently</span>` : `<span class="pill green">All bank systems answering</span>`,
+  ].join(" ");
+  V().innerHTML = `<div class="stack">
+    <div class="row between"><div><h1>${P.greeting()}${first ? ", " + P.esc(first) : ""}</h1><p class="muted">Here is what needs your attention today.</p></div><div class="row">${health}</div></div>
+    <div class="grid g4">
+      <div class="tile amber click" onclick="go('decisions')"><div class="lbl">Decisions waiting for the bank</div><div class="num">${o.counts.decisions}</div><div class="hint">Transactions stopped until someone decides</div></div>
+      <div class="tile blue click" onclick="S.dealFilter='attention';go('deals')"><div class="lbl">Waiting for clients</div><div class="num">${o.counts.waiting_for_client}</div><div class="hint">Clients must answer a question</div></div>
+      <div class="tile green click" onclick="go('applications')"><div class="lbl">New applications today</div><div class="num">${o.counts.applications_today}</div><div class="hint">${o.counts.applications_waiting ? o.counts.applications_waiting + " waiting for a system" : "All processed"}</div></div>
+      <div class="tile gray click" onclick="S.dealFilter='active';go('deals')"><div class="lbl">Active transactions</div><div class="num">${o.counts.active}</div><div class="hint">${P.money(o.open_eur, "EUR")} open</div></div>
+    </div>
+    <div class="grid g2">
+      <div class="card"><div class="section-title"><h2>Your next steps</h2><a href="#decisions">See all</a></div>${nextSteps(t)}</div>
+      <div class="card"><div class="section-title"><h2>What happened recently</h2></div>${P.timeline(o.activity.slice().reverse(), false)}</div>
+    </div>
+    <div class="card"><h2 style="margin-bottom:12px">Open business by product</h2>${o.by_product.length ? `<table class="list"><thead><tr><th>Product</th><th class="num">Active</th><th class="num">Open amount (EUR)</th></tr></thead><tbody>
+      ${o.by_product.map((p) => `<tr><td>${P.esc(p.name)}</td><td class="num">${p.count}</td><td class="num">${P.money(p.open_eur)}</td></tr>`).join("")}</tbody></table>` : `<div class="empty">No active business.</div>`}</div>
+  </div>`;
+  V().querySelectorAll("[data-open]").forEach((b) => b.onclick = () => openDeal(b.dataset.open));
+}
+function nextSteps(t) {
+  const items = [];
+  t.decisions.slice(0, 5).forEach((d) => items.push(`<div class="row between" style="padding:10px 0;border-bottom:1px solid var(--line-2)"><div><b>${P.esc(d.title)}</b>
+    <div class="small muted">${P.esc(d.customer_name || "")} &middot; ${P.esc(d.product_name || "")} &middot; ${P.money(d.amount, d.currency)} &middot; decided by ${P.esc(d.who)}</div></div>
+    <button class="btn small" data-open="${P.esc(d.deal_ref)}">Open</button></div>`));
+  t.applications_waiting.slice(0, 3).forEach((a) => items.push(`<div class="row between" style="padding:10px 0;border-bottom:1px solid var(--line-2)"><div><b>Application waiting for a bank system</b>
+    <div class="small muted">${P.esc(a.customer_name)} &middot; ${P.esc(a.product_name)} &middot; ${P.esc(a.application_id)}</div></div><button class="btn small sec" onclick="go('applications')">View</button></div>`));
+  return items.length ? items.join("") : `<div class="notice green"><b>All clear.</b> Nothing is waiting for a decision. New applications are processed automatically.</div>`;
+}
+
+// ------------------------------------------------------------------ decisions
+async function decisions() {
+  const t = await P.api("/api/v1/staff/tasks");
+  V().innerHTML = `<div class="stack">
+    <div><h1>Decisions</h1><p class="muted">These transactions stopped because the rules say a person must decide. Each card explains what happened and what your choice will do.</p></div>
+    ${t.decisions.length ? t.decisions.map(decisionCard).join("") : `<div class="notice green"><b>No decisions waiting.</b> Everything is running automatically.</div>`}
+    ${t.applications_waiting.length ? `<div class="card"><h2>Applications waiting for a bank system</h2><p class="muted small">They are saved. They are retried automatically every hour, or you can retry now.</p>
+      <table class="list" style="margin-top:10px"><tbody>${t.applications_waiting.map((a) => `<tr><td><b>${P.esc(a.application_id)}</b><div class="tiny muted">${P.esc(a.message)}</div></td><td>${P.esc(a.customer_name)}</td><td>${P.esc(a.product_name)}</td>
+      <td class="num"><button class="btn small" data-retry="${P.esc(a.application_id)}">Retry now</button></td></tr>`).join("")}</tbody></table></div>` : ""}
+    <div class="card"><h2>Waiting for clients</h2><p class="muted small">The client must answer in the client portal or by email link. Nothing to do for you unless the deadline passes.</p>
+      ${t.waiting_for_client.length ? `<table class="list" style="margin-top:10px"><tbody>${t.waiting_for_client.map((w) => `<tr class="click" data-open="${P.esc(w.ref)}"><td><b>${P.esc(w.ref)}</b></td><td>${P.esc(w.customer_name)}</td><td>${P.esc(w.title)}</td><td>${w.deadline ? "Deadline " + P.date(w.deadline) : ""}</td></tr>`).join("")}</tbody></table>` : `<div class="empty">No client is being asked anything.</div>`}</div>
+  </div>`;
+  bindDecisions(() => go("decisions")); bindReturn(() => go("decisions"));
+  V().querySelectorAll("[data-open]").forEach((b) => b.onclick = () => openDeal(b.dataset.open));
+  bindRetry(() => go("decisions"));
+}
+function decisionCard(d, inDeal) {
+  return `<div class="card stack-s" data-exc="${P.esc(d.exception_id)}" style="border-left:5px solid #f0a400">
+    <div class="row between"><div><div class="tiny muted">Decided by: ${P.esc(d.who)}${d.approvals_needed > 1 ? ` &middot; needs ${d.approvals_needed} different people (four-eyes)` : ""}</div><h2>${P.esc(d.title)}</h2></div>
+      ${inDeal ? "" : `<button class="btn sec small" data-open="${P.esc(d.deal_ref)}">Open transaction ${P.esc(d.deal_ref)}</button>`}</div>
+    ${inDeal ? "" : `<div class="kv"><div class="k">Customer</div><div>${P.esc(d.customer_name || "-")}</div><div class="k">Transaction</div><div>${P.esc(d.product_name || "")} &middot; ${P.money(d.amount, d.currency)} &middot; ${P.esc(d.counterparty || "")}</div>
+      <div class="k">Stopped since</div><div>${P.when(d.created_at)}</div></div>`}
+    <div class="notice amber"><b>Why it stopped:</b> ${P.esc(d.reason)}</div>
+    <p class="small"><b>What this means:</b> ${P.esc(d.explain)}</p>
+    ${d.approvers.length ? `<p class="small"><b>Approved so far by:</b> ${P.esc(d.approvers.join(", "))} (${d.approvers.length} of ${d.approvals_needed})</p>` : ""}
+    <div class="grid ${d.can_return ? "g3" : "g2"}"><div class="notice green small"><b>If you choose "${P.esc(d.approve_label)}":</b> ${P.esc(d.if_approve)}</div>
+      ${d.can_return ? `<div class="notice blue small"><b>If you choose "${P.esc(d.return_label)}":</b> ${P.esc(d.if_return)}</div>` : ""}
+      <div class="notice red small"><b>If you choose "${P.esc(d.reject_label)}":</b> ${P.esc(d.if_reject)}</div></div>
+    <label class="f"><span>Your note (required - it is kept in the audit trail)</span><textarea class="note" placeholder="e.g. Checked the passport copy - different date of birth, not the listed person."></textarea></label>
+    <div class="row"><button class="btn green" data-approve="1">${P.esc(d.approve_label)}</button>${d.can_return ? `<button class="btn blue" data-return="1">${P.esc(d.return_label)}</button>` : ""}<button class="btn red" data-approve="0">${P.esc(d.reject_label)}</button></div>
+  </div>`;
+}
+function bindDecisions(after) {
+  V().querySelectorAll("[data-exc] [data-approve]").forEach((b) => b.onclick = async () => {
+    const card = b.closest("[data-exc]"), note = card.querySelector(".note").value.trim();
+    if (!note) { P.toast("Please write a short note explaining your decision.", "err"); card.querySelector(".note").focus(); return; }
+    if (!confirm(`Confirm your decision: "${b.textContent}"?`)) return;
+    b.disabled = true;
+    try {
+      const r = await P.api(`/api/v1/tf/exceptions/${encodeURIComponent(card.dataset.exc)}/resolve`, { method: "POST", body: { approve: b.dataset.approve === "1", note, resolved_by: S.me.name } });
+      const still = r && r.open_exceptions && r.open_exceptions.includes(card.dataset.exc);
+      P.toast(still ? "Your approval is recorded. A second person must also approve." : "Decision recorded - the transaction continues automatically.", "ok");
+      after();
+    } catch (e) { P.toast(e.message, "err"); b.disabled = false; }
+  });
+}
+function bindReturn(after) {
+  V().querySelectorAll("[data-exc] [data-return]").forEach((b) => b.onclick = async () => {
+    const card = b.closest("[data-exc]"), note = card.querySelector(".note").value.trim();
+    if (!note) { P.toast("Please write a short note for the client, e.g. which code is wrong.", "err"); card.querySelector(".note").focus(); return; }
+    if (!confirm("Send this application back to the client to correct?")) return;
+    b.disabled = true;
+    try { await P.api(`/api/v1/staff/exceptions/${encodeURIComponent(card.dataset.exc)}/return-to-client`, { method: "POST", body: { note } });
+      P.toast("Sent back to the client. They will correct it in the client portal.", "ok"); after(); }
+    catch (e) { P.toast(e.message, "err"); b.disabled = false; }
+  });
+}
+function bindRetry(after) {
+  V().querySelectorAll("[data-retry]").forEach((b) => b.onclick = async () => {
+    b.disabled = true;
+    try { const r = await P.api(`/api/v1/staff/applications/${encodeURIComponent(b.dataset.retry)}/retry`, { method: "POST" });
+      P.toast(r.status === "PROCESSED" ? "Processed - transaction " + r.deal_ref : r.message, r.status === "PROCESSED" ? "ok" : "err"); after(); }
+    catch (e) { P.toast(e.message, "err"); b.disabled = false; }
+  });
+}
+
+// ------------------------------------------------------------------ applications
+async function applications() {
+  const rows = await P.api("/api/v1/staff/applications");
+  V().innerHTML = `<div class="stack"><div class="row between"><div><h1>Applications</h1><p class="muted">Every application exactly as the client sent it (client portal) or as entered by staff. Saved before processing - nothing gets lost.</p></div>
+    <button class="btn" onclick="go('new')">+ Enter an application for a customer</button></div>
+    <div class="card" style="padding:0"><div class="table-wrap"><table class="list"><thead><tr><th>Application</th><th>Received</th><th>Customer</th><th>Type</th><th class="num">Amount</th><th>Channel</th><th>Result</th><th></th></tr></thead><tbody>
+    ${rows.length ? rows.map((a) => `<tr class="click" data-app="${P.esc(a.application_id)}"><td class="bold">${P.esc(a.application_id)}</td><td>${P.when(a.submitted_at)}</td><td>${P.esc(a.customer_name)}</td>
+      <td>${P.esc(a.product_name)}</td><td class="num">${P.money(a.amount, a.currency)}</td><td>${a.channel === "CLIENT_PORTAL" ? "Client portal" : "Entered by " + P.esc(a.submitted_by || "staff")}</td>
+      <td>${P.pill(a.deal_tone || a.tone, a.deal_status_label || a.status_label)}${a.deal_ref ? `<div class="tiny muted">${P.esc(a.deal_ref)}</div>` : ""}</td>
+      <td>${a.status === "WAITING_FOR_SYSTEM" ? `<button class="btn small" data-retry="${P.esc(a.application_id)}">Retry</button>` : ""}</td></tr>`).join("") : `<tr><td colspan="8" class="empty">No applications yet.</td></tr>`}</tbody></table></div></div></div>`;
+  bindRetry(() => go("applications"));
+  V().querySelectorAll("[data-app]").forEach((tr) => tr.onclick = (e) => { if (e.target.closest("[data-retry]")) return; showApplication(rows.find((a) => a.application_id === tr.dataset.app)); });
+}
+function showApplication(a) {
+  const flat = []; const walk = (o, p) => Object.entries(o || {}).forEach(([k, v]) => {
+    if (v === null || v === "" || v === false || (Array.isArray(v) && !v.length)) return;
+    if (Array.isArray(v)) flat.push([p + k, v.map((x) => typeof x === "object" ? (x.doc_type || JSON.stringify(x)) + (x.originals > 1 ? ` (${x.originals} originals)` : "") : x).join(", ")]);
+    else if (typeof v === "object") walk(v, p + k + " / "); else flat.push([p + k, v === true ? "Yes" : v]);
+  }); walk(a.details, "");
+  const m = P.modal(`<div class="row between"><div><div class="tiny muted">${P.esc(a.product_name)} &middot; ${P.esc(a.customer_name)}</div><h2>Application ${P.esc(a.application_id)}</h2></div><button class="btn sec small" data-close>Close</button></div>
+    <div class="notice ${a.tone === "green" ? "green" : a.tone === "red" ? "red" : a.tone === "amber" ? "amber" : "blue"}" style="margin-top:14px"><b>${P.esc(a.status_label)}.</b> ${P.esc(a.message || a.status_text)}</div>
+    <h3 style="margin:16px 0 8px">What was submitted</h3><div class="kv">${flat.map(([k, v]) => `<div class="k">${P.esc(k.replace(/_/g, " "))}</div><div>${P.esc(v)}</div>`).join("")}</div>
+    <h3 style="margin:16px 0 8px">Supporting documents</h3>${P.docsTable(a.attachments, (x) => "/api/v1/tf/files/" + encodeURIComponent(x.file_id))}
+    <h3 style="margin:16px 0 8px">History</h3>${a.history.map((h) => `<div class="small"><span class="muted">${P.when(h.at)}</span> &middot; ${P.esc(h.text)}</div>`).join("")}
+    ${a.deal_ref ? `<div style="margin-top:16px"><button class="btn" data-goto="${P.esc(a.deal_ref)}">Open transaction ${P.esc(a.deal_ref)}</button></div>` : ""}`);
+  const g = m.querySelector("[data-goto]"); if (g) g.onclick = () => { m.remove(); openDeal(g.dataset.goto); };
+}
+
+// ------------------------------------------------------------------ transactions
+async function deals() {
+  V().innerHTML = `<div class="stack"><div><h1>Transactions</h1><p class="muted">All letters of credit, guarantees, sureties and collections. Click a row for the full story.</p></div>
+    <div class="row between"><div class="seg" id="dFilter">${[["all", "All"], ["attention", "Needs attention"], ["active", "Active"], ["finished", "Finished"]].map(([k, l]) => `<button data-f="${k}" class="${S.dealFilter === k ? "active" : ""}">${l}</button>`).join("")}</div>
+      <input type="text" id="dSearch" placeholder="Search reference, customer, other party..." style="max-width:340px" value="${P.esc(S.q)}"></div>
+    <div class="card" style="padding:0" id="dTable"><div class="empty">Loading...</div></div></div>`;
+  $("dFilter").onclick = (e) => { const b = e.target.closest("[data-f]"); if (!b) return; S.dealFilter = b.dataset.f; $("dFilter").querySelectorAll("button").forEach((x) => x.classList.toggle("active", x === b)); loadDeals(); };
+  let tm; $("dSearch").oninput = () => { clearTimeout(tm); tm = setTimeout(() => { S.q = $("dSearch").value; loadDeals(); }, 250); };
+  await loadDeals();
+}
+async function loadDeals() {
+  const rows = await P.api(`/api/v1/staff/deals?view=${S.dealFilter}&q=${encodeURIComponent(S.q)}`);
+  $("dTable").innerHTML = `<div class="table-wrap"><table class="list"><thead><tr><th>Reference</th><th>Customer</th><th>Type</th><th>Other party</th><th class="num">Amount</th><th>Status</th><th>Waiting for</th><th>Valid until</th></tr></thead><tbody>
+    ${rows.length ? rows.map((r) => `<tr class="click" data-open="${P.esc(r.ref)}"><td class="bold">${P.esc(r.ref)}</td><td>${P.esc(r.customer_name)}</td><td>${P.esc(r.product_name)}</td>
+      <td>${P.esc(r.counterparty || "-")}</td><td class="num">${P.money(r.amount, r.currency)}</td><td>${P.pill(r.tone, r.status_label)}</td>
+      <td>${r.waiting_for ? `<span class="pill amber">${P.esc(r.waiting_for)}</span>` : `<span class="muted small">-</span>`}</td><td>${P.date(r.expiry_date)}</td></tr>`).join("") : `<tr><td colspan="8" class="empty">Nothing found.</td></tr>`}</tbody></table></div>`;
+  $("dTable").querySelectorAll("[data-open]").forEach((tr) => tr.onclick = () => openDeal(tr.dataset.open));
+}
+async function openDeal(ref, tab) {
+  setNav("deals"); S.view = "deals"; S.hash = "deal/" + encodeURIComponent(ref); location.hash = S.hash;
+  V().innerHTML = `<div class="empty">Loading...</div>`;
+  let d;
+  try { d = await P.api(`/api/v1/staff/deals/${encodeURIComponent(ref)}`); } catch (e) { V().innerHTML = `<div class="notice red">${P.esc(e.message)}</div>`; return; }
+  const tone = (t) => ({ green: "green", amber: "amber", red: "red", gray: "gray" }[t] || "blue");
+  V().innerHTML = `<div class="stack">
+    <button class="btn sec small" onclick="go('deals')">&larr; All transactions</button>
+    <div class="card stack">
+      <div class="row between"><div><div class="tiny muted">${P.esc(d.product_name)}${d.application_id ? " &middot; from application " + P.esc(d.application_id) : ""}${d.created_by ? " &middot; entered by " + P.esc(d.created_by) : ""}</div>
+        <h1>${P.esc(d.ref)} &middot; ${P.money(d.amount, d.currency)}</h1><p class="muted">${P.esc(d.customer_name)} &rarr; ${P.esc(d.counterparty || "")}</p></div>${P.pill(d.tone, d.status_label)}</div>
+      <div class="notice ${tone(d.tone)}"><b>${P.esc(d.status_label)}.</b> ${P.esc(d.status_text)}</div>
+      ${P.progress(d.progress)}
+    </div>
+    ${d.decisions.length ? `<div class="stack"><h2>&#9878; A decision is needed</h2>${d.decisions.map((x) => decisionCard(x, true)).join("")}</div>` : ""}
+    ${d.actions.length ? `<div class="notice blue"><h3>Waiting for the client</h3>${d.actions.map((a) => `<p class="small" style="margin-top:4px"><b>${P.esc(a.title)}</b> ${a.deadline ? "- deadline " + P.date(a.deadline) : ""}</p>${a.problems.length ? `<ul class="small">${a.problems.map((p) => `<li>${P.esc(p)}</li>`).join("")}</ul>` : ""}
+      ${a.kind === "waiver" ? `<div class="row" style="margin-top:6px"><button class="btn sec small" data-reexam="${P.esc(a.item_id)}">Check documents again</button><span class="tiny muted">If our finding was wrong, the bank can withdraw it before the client decides. Matching documents are paid with no discrepancy fee.</span></div>` : ""}`).join("")}
+      <p class="tiny muted" style="margin-top:6px">The client answers in the client portal or via the link in the email.</p></div>` : ""}
+    <div class="grid g2">
+      <div class="card"><h2 style="margin-bottom:12px">Key details</h2>${P.facts(d.facts)}</div>
+      <div class="card"><h2 style="margin-bottom:12px">Customer</h2>${d.customer ? `<div class="kv"><div class="k">Name</div><div>${P.esc(d.customer.name)}</div><div class="k">Identity file (KYC)</div><div>${P.pill(d.customer.kyc === "VERIFIED" ? "green" : "red", d.customer.kyc)}</div>
+        <div class="k">Risk rating</div><div>${P.esc(d.customer.risk)}</div><div class="k">Email</div><div>${P.esc(d.customer.email)}</div></div>` : ""}
+        <p class="tiny muted" style="margin-top:10px">${P.esc(d.product_help)}</p></div>
+    </div>
+    <div class="card">
+      <div class="subtabs" id="dTabs">${[["story", "What happened"], ["docs", "Documents (" + d.documents.length + ")"], ["money", "Fees & bookings"], ["swift", "SWIFT messages (" + d.swift.length + ")"], ["msgs", "Client messages (" + d.messages.length + ")"], ["decided", "Past decisions (" + d.past_decisions.length + ")"]]
+        .map(([k, l]) => `<button data-t="${k}">${l}</button>`).join("")}</div>
+      <div id="dBody"></div>
+    </div></div>`;
+  const body = {
+    story: () => `<div class="row between" style="margin-bottom:12px"><p class="small muted">Every step the platform took, in order. Technical steps are the individual calls to the bank's systems.</p>
+      <label class="check small"><input type="checkbox" id="tech"> Show technical steps</label></div><div id="tl">${P.timeline(d.story, false)}</div>`,
+    docs: () => P.docsTable(d.documents, (x) => "/api/v1/tf/files/" + encodeURIComponent(x.file_id)),
+    money: () => `<h3 style="margin-bottom:8px">Fees charged to the client</h3>${d.fees.length ? `<table class="list"><tbody>${d.fees.map((f) => `<tr><td>${P.date(f.date)}</td><td>${P.esc(f.fee)}</td><td class="num">${P.money(f.amount, f.currency)}</td></tr>`).join("")}</tbody></table>` : `<div class="empty">No fees.</div>`}
+      <h3 style="margin:18px 0 8px">Bookings in the accounts</h3>${d.bookings.length ? `<div class="table-wrap"><table class="list"><thead><tr><th>Date</th><th>Text</th><th>Debit</th><th>Credit</th><th class="num">Amount</th></tr></thead><tbody>${d.bookings.map((b) => `<tr><td>${P.date(b.date)}</td><td>${P.esc(b.text)}</td><td class="small">${P.esc(b.debit)}</td><td class="small">${P.esc(b.credit)}</td><td class="num">${P.money(b.amount, b.currency)}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No bookings.</div>`}`,
+    swift: () => d.swift.length ? `<table class="list"><thead><tr><th>Message</th><th>Meaning</th><th>To bank</th><th>Status</th><th></th></tr></thead><tbody>${d.swift.map((m) => `<tr><td class="bold">MT${P.esc(m.type)}</td><td>${P.esc(m.meaning)}</td><td>${P.esc(m.to)}</td><td>${P.pill(m.status === "RELEASED" ? "green" : "blue", m.status === "RELEASED" ? "Sent" : m.status)}</td>
+      <td><button class="btn sec small" data-swift="${P.esc(m.message_id)}">Show message</button></td></tr>`).join("")}</tbody></table>` : `<div class="empty">No SWIFT messages.</div>`,
+    msgs: () => d.messages.length ? d.messages.slice().reverse().map((m) => `<details style="border-bottom:1px solid var(--line-2);padding:8px 0"><summary><b>${P.esc(m.subject)}</b> <span class="tiny muted">${P.date(m.date)}</span></summary><pre style="white-space:pre-wrap;font:inherit;font-size:13px">${P.esc(m.body)}</pre></details>`).join("") : `<div class="empty">No messages sent to the client.</div>`,
+    decided: () => d.past_decisions.length ? `<table class="list"><tbody>${d.past_decisions.map((x) => `<tr><td><b>${P.esc(x.title)}</b><div class="tiny muted">${P.esc(x.reason)}</div></td><td>${P.pill(x.status === "APPROVED" ? "green" : "red", x.status === "APPROVED" ? "Approved" : "Rejected")}</td>
+      <td>${P.esc(x.resolved_by || "")}${x.approvers.length > 1 ? `<div class="tiny muted">approvers: ${P.esc(x.approvers.join(", "))}</div>` : ""}</td><td class="small">${P.esc(x.note || "")}</td></tr>`).join("")}</tbody></table>` : `<div class="empty">No decisions were needed.</div>`,
+  };
+  const show = (k) => { $("dTabs").querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.t === k)); $("dBody").innerHTML = body[k]();
+    const tech = $("tech"); if (tech) tech.onchange = () => { $("tl").innerHTML = P.timeline(d.story, tech.checked); };
+    $("dBody").querySelectorAll("[data-swift]").forEach((b) => b.onclick = async () => { try { const txt = await P.api(`/api/v1/staff/swift/${encodeURIComponent(b.dataset.swift)}`);
+      P.modal(`<div class="row between"><h2>SWIFT message</h2><button class="btn sec small" data-close>Close</button></div><pre style="margin-top:12px">${P.esc(txt)}</pre>`); } catch (e) { P.toast(e.message, "err"); } }); };
+  $("dTabs").onclick = (e) => { const b = e.target.closest("[data-t]"); if (b) show(b.dataset.t); };
+  show(tab || "story");
+  bindDecisions(() => openDeal(ref)); bindReturn(() => openDeal(ref));
+  V().querySelectorAll("[data-reexam]").forEach((b) => b.onclick = async () => {
+    if (!confirm("Check these documents again with the current rules?")) return;
+    b.disabled = true;
+    try { const r = await P.api(`/api/v1/staff/deals/${encodeURIComponent(ref)}/presentations/${encodeURIComponent(b.dataset.reexam)}/re-examine`, { method: "POST" });
+      P.toast(r.actions.length ? "Checked again - the documents still do not match; the client was asked again." : "Checked again - the documents match and were paid.", "ok"); openDeal(ref); }
+    catch (e) { P.toast(e.message, "err"); b.disabled = false; }
+  });
+}
+
+// ------------------------------------------------------------------ customers
+async function customers() {
+  const rows = await P.api("/api/v1/staff/customers");
+  V().innerHTML = `<div class="stack"><div><h1>Customers</h1><p class="muted">Identity file status, risk rating and how much of each credit line is used.</p></div>
+    <div class="grid g3">${rows.map((c) => `<div class="card stack-s"><div class="row between"><h3>${P.esc(c.name)}</h3>${P.pill(c.kyc === "VERIFIED" ? "green" : "red", "KYC " + c.kyc.toLowerCase())}</div>
+      <p class="small muted">${P.esc(c.address)} &middot; ${P.esc(c.customer_id)}</p>
+      <p class="small">Risk rating <b>${P.esc(c.risk)}</b> &middot; next KYC review ${P.date(c.kyc_next_review)}</p>
+      <div>${c.credit_lines.map((l) => { const pct = l.limit ? Math.min(100, Math.round(l.used / l.limit * 100)) : 0;
+        return `<div style="margin-top:10px"><div class="row between small"><span>${P.esc(l.product.replace("_", " ").toLowerCase())}</span><span>${P.money(l.available)} free</span></div><div class="bar ${pct > 90 ? "full" : pct > 70 ? "warn" : ""}"><div style="width:${pct}%"></div></div></div>`; }).join("")}</div>
+      <div class="row between" style="margin-top:10px"><span class="small">${c.active_deals} active / ${c.all_deals} total</span><button class="btn sec small" data-cust="${P.esc(c.name)}">Show transactions</button></div></div>`).join("")}</div></div>`;
+  V().querySelectorAll("[data-cust]").forEach((b) => b.onclick = () => { S.q = b.dataset.cust; S.dealFilter = "all"; go("deals"); });
+}
+
+// ------------------------------------------------------------------ new application (on behalf of a customer)
+async function newApp() {
+  S.customers = await P.api("/api/v1/staff/customers");
+  V().innerHTML = `<div class="stack"><div><h1>Enter an application for a customer</h1><p class="muted">For applications received on paper, by email or by phone. It is processed exactly like an online application. Fields marked <span style="color:var(--red)">*</span> are required.</p></div>
+    <div class="form-section"><h3>Customer</h3><div class="fields"><label class="f wide"><span>Customer <em>*</em></span><select id="nCust"><option value="">- choose -</option>${S.customers.map((c) => `<option value="${P.esc(c.customer_id)}">${P.esc(c.name)} (${P.esc(c.customer_id)})</option>`).join("")}</select></label></div></div>
+    <div id="chooser"></div>
+    <div id="formArea" class="hidden stack"><div class="row between"><h2 id="fTitle"></h2><button class="btn sec small" id="fExample">Fill in an example</button></div><div id="form"></div>
+      <div class="form-section"><h3>Supporting documents</h3><div class="help">Scan of the signed application, contract, pro-forma invoice...</div><div id="upl"></div></div>
+      <div id="fErrors"></div><div class="row"><button class="btn big" id="fSubmit">Submit application</button></div></div>
+    <div id="result"></div></div>`;
+  let upl;
+  P.chooser($("chooser"), (p) => { S.product = p; $("formArea").classList.remove("hidden"); $("result").innerHTML = ""; $("fTitle").textContent = P.FORMS[p].name;
+    P.renderForm($("form"), p, S.me.currencies); upl = P.uploader($("upl")); });
+  $("fExample").onclick = () => P.fillForm($("form"), P.examples(S.product, S.me.business_date));
+  $("fSubmit").onclick = async () => {
+    const btn = $("fSubmit"); $("fErrors").innerHTML = "";
+    if (!$("nCust").value) { P.toast("Choose the customer first.", "err"); $("nCust").focus(); return; }
+    btn.disabled = true;
+    try {
+      const r = await P.api("/api/v1/staff/applications", { method: "POST", body: { customer_id: $("nCust").value, product: S.product, details: P.collectForm($("form")), files: upl.files() } });
+      $("formArea").classList.add("hidden"); $("chooser").classList.add("hidden");
+      $("result").innerHTML = `<div class="notice ${r.status === "PROCESSED" ? "green" : r.status === "REJECTED" ? "red" : "amber"}"><h2>${P.esc(r.status_label)}</h2>
+        <p style="margin-top:6px">Application <b>${P.esc(r.application_id)}</b> for ${P.esc(r.customer_name)}. ${P.esc(r.message)}</p>
+        ${r.deal_ref ? `<p style="margin-top:6px"><b>${P.esc(r.deal_status_label)}:</b> ${P.esc(r.deal_status_text)}</p>` : ""}
+        <div class="row" style="margin-top:12px">${r.deal_ref ? `<button class="btn" onclick="openDeal('${P.esc(r.deal_ref)}')">Open transaction</button>` : ""}<button class="btn sec" onclick="go('new')">Enter another</button></div></div>`;
+    } catch (e) {
+      const left = P.showErrors($("form"), S.product, e.errors);
+      $("fErrors").innerHTML = `<div class="notice red"><b>${P.esc(e.message)}</b>${left.length ? `<ul>${left.map((x) => `<li>${P.esc(x)}</li>`).join("")}</ul>` : ""}</div>`;
+    } finally { btn.disabled = false; }
+  };
+}
+
+// ------------------------------------------------------------------ reports
+async function reports() {
+  V().innerHTML = `<div class="stack"><div><h1>Reports</h1><p class="muted">Copies for managers and auditors. The database stays the official record.</p></div>
+    <div class="card row between"><div><h3>Excel report of the trade finance books</h3><p class="small muted">Sheets: transactions, bookings, fees, decisions, SWIFT messages, stored documents, and a check that the accounts balance.</p></div>
+      <button class="btn" id="xl">&#11015; Download Excel</button></div></div>`;
+  $("xl").onclick = () => P.download("/api/v1/tf/export/excel", "trade_finance_report.xlsx");
+}
+
+start().catch((e) => { document.body.innerHTML = `<div class="notice red" style="margin:40px">${P.esc(e.message)}</div>`; });
+</script>
+</body>
+</html>

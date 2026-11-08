@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "auto-connect"
+version = "2.0.0"
+description = "Trade finance orchestration platform: connects bank systems and runs LCs, guarantees, sureties and collections end to end"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "google-genai>=1.0.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+    "pydantic>=2.10.0",
+    "requests>=2.32.0",
+    "httpx>=0.28.0",
+    "rich>=13.0.0",
+    "pyyaml>=6.0.0",
+    "python-dotenv>=1.0.0",
+    "pypdf>=5.0",
+    "psycopg[binary]>=3.2",
+    "paramiko>=3.4",
+    "openpyxl>=3.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0", "pytest-asyncio>=0.24.0"]
+
+[project.scripts]
+auto-connect = "auto_connect.main:main"
+auto-connect-server = "auto_connect.dashboard:start_server"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+

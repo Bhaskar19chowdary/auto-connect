@@ -1,0 +1,90 @@
+{
+  "tf_customer_master": {
+    "get_customer": {"method": "GET", "path": "/v3/parties/{partyId}",
+      "request_template": {"partyId": "customer_id"},
+      "response": {
+        "customer": {"template": {
+          "customer_id": "data.party.partyId", "name": "data.party.legalName",
+          "address": "data.party.postalAddress.line", "country": "data.party.postalAddress.countryIso",
+          "email": "data.party.contact.email", "relationship_manager_email": "data.party.contact.rmEmail",
+          "kyc_status": {"from": "data.party.kyc.state", "map": {"V": "VERIFIED", "E": "EXPIRED", "P": "PENDING"}},
+          "kyc_next_review": {"from": "data.party.kyc.nextReview", "date_in": "%d.%m.%Y"},
+          "risk_rating": {"from": "data.party.riskClass", "map": {"1": "LOW", "2": "MEDIUM", "3": "HIGH"}},
+          "current_account_iban": "data.party.settlementAccount.iban"}},
+        "kyc_ok": {"from": "data.party.kyc.state", "map": {"V": true, "E": false, "P": false}},
+        "kyc_issue": {"from": "data.party.kyc.state", "map": {"V": "", "E": "KYC periodic review overdue (Customer Hub)",
+                                                              "P": "KYC onboarding pending (Customer Hub)"}}}},
+    "periodic_reviews_due": {"method": "GET", "path": "/v3/kyc/reviews",
+      "request_template": {"horizonDays": "within_days"},
+      "response": {"due": {"from": "items", "default": [], "each": {"template": {
+        "customer_id": "partyId", "name": "legalName", "relationship_manager_email": "rmEmail",
+        "kyc_next_review": {"from": "nextReview", "date_in": "%d.%m.%Y"}}}}}}
+  },
+  "tf_sanctions_screening": {
+    "screen_parties": {"method": "POST", "path": "/screening/v2/cases",
+      "request_template": {"caseRef": "deal_ref",
+        "subjects": {"from": "parties", "each": {"template": {"name": "name", "countryIso": "country", "role": "role"}}},
+        "locations": {"from": "places", "default": []}, "goodsText": {"from": "goods", "default": ""}, "vesselImo": "vessel_imo"},
+      "response": {"result": {"from": "outcome", "map": {"NO_HIT": "CLEAR", "POTENTIAL_HIT": "REVIEW_REQUIRED", "HIT": "BLOCKED"}},
+        "case_id": "caseId",
+        "alerts": {"from": "findings", "default": [], "each": {"template": {"subject": "subjectName", "reason": "listName",
+          "score": "score", "decision": {"from": "decision", "map": {"TRUE_MATCH": "HIT", "POSSIBLE": "REVIEW"}}}}}}}
+  },
+  "tf_market_data": {
+    "fx_rate": {"method": "GET", "path": "/rates/{ccy}", "request_template": {"ccy": "currency", "quote": {"const": "EUR"}},
+      "response": {"eur_per_unit": "mid", "as_of": {"from": "asOf", "date_in": "%d.%m.%Y"}}},
+    "convert": {"method": "POST", "path": "/fx/convert",
+      "request_template": {"sellCcy": "from_currency", "buyCcy": "to_currency", "sellAmount": {"from": "amount", "type": "str"}},
+      "response": {"amount": "buyAmount", "currency": "buyCcy"}}
+  },
+  "tf_core_ledger": {
+    "post_entries": {"method": "POST", "path": "/gl/v1/journals",
+      "request_template": {"journalRef": "deal_ref", "valueDate": {"from": "value_date", "date": "%d.%m.%Y"},
+        "overdraftOverride": {"from": "allow_overdraft_excess", "default": false},
+        "lines": {"from": "entries", "each": {"template": {"drAcct": "debit", "crAcct": "credit", "text": "narrative",
+          "amountMinor": {"from": "amount", "scale": 100, "type": "int"}}}}},
+      "response": {"journal_id": "journalId"},
+      "errors": {"path": "error.code", "map": {"NSF": "INSUFFICIENT_FUNDS", "UNKNOWN_ACCOUNT": "BAD_REQUEST"}}},
+    "account_balance": {"method": "GET", "path": "/gl/v1/accounts/{acct}/balance", "request_template": {"acct": "account_id"},
+      "response": {"account_id": "account", "free_balance": {"from": "balances.available.amountMinor", "scale": "0.01", "type": "decimal"},
+        "balance": {"from": "balances.booked.amountMinor", "scale": "0.01", "type": "decimal"}}},
+    "block_funds": {"method": "POST", "path": "/gl/v1/holds",
+      "request_template": {"acct": "account_id", "holdRef": "deal_ref", "amountMinor": {"from": "amount", "scale": 100, "type": "int"}},
+      "response": {"blocked": {"from": "heldMinor", "scale": "0.01", "type": "decimal"}}},
+    "unblock_funds": {"method": "POST", "path": "/gl/v1/holds/release",
+      "request_template": {"acct": "account_id", "holdRef": "deal_ref", "amountMinor": {"from": "amount", "scale": 100, "type": "int"}},
+      "response": {"released": {"from": "releasedMinor", "scale": "0.01", "type": "decimal"}}}
+  },
+  "tf_credit_limits": {
+    "earmark_limit": {"method": "POST", "path": "/limits/reservations",
+      "request_template": {"partyId": "customer_id", "externalRef": "deal_ref",
+        "productCode": {"from": "product", "map": {"LC": "IMP_LC", "GUARANTEE": "GTEE", "SURETY": "AVAL"}},
+        "amount.value": {"from": "amount_eur", "type": "str"}, "amount.ccy": {"const": "EUR"},
+        "approvedOverride": {"from": "credit_approved", "default": false}},
+      "response": {"facility_id": "lineId", "utilised_eur": "reserved.value", "cash_collateral_eur": {"const": "0"},
+        "methods": {"const": [{"method": "LIMIT_SYSTEM"}]}},
+      "errors": {"path": "error.code", "map": {"LINE_EXCEEDED": "CREDIT_LIMIT_INSUFFICIENT", "NO_LINE": "NO_FACILITY"}}},
+    "earmark_bank_limit": {"method": "POST", "path": "/limits/counterparty-reservations",
+      "request_template": {"bankBic": "bank_bic", "externalRef": "deal_ref", "amount.value": {"from": "amount_eur", "type": "str"},
+        "amount.ccy": {"const": "EUR"}, "approvedOverride": {"from": "credit_approved", "default": false}},
+      "response": {"facility_id": "lineId", "utilised_eur": "reserved.value"},
+      "errors": {"path": "error.code", "map": {"LINE_EXCEEDED": "CREDIT_LIMIT_INSUFFICIENT", "NO_LINE": "NO_FACILITY"}}},
+    "release_limit": {"method": "POST", "path": "/limits/reservations/release",
+      "request_template": {"externalRef": "deal_ref", "amount.value": {"from": "amount_eur", "type": "str"}},
+      "response": {"limit_released_eur": "released.value"}},
+    "customer_exposure": {"method": "GET", "path": "/limits/parties/{partyId}", "request_template": {"partyId": "customer_id"},
+      "response": {"facilities": "lines"}}
+  },
+  "tf_document_archive": {
+    "store_document": {"method": "POST", "path": "/dms/api/documents",
+      "request_template": {"dossier": "deal_ref", "docClass": "doc_type", "title": "title",
+        "contentBase64": {"from": "content", "encode": "base64"}},
+      "response": {"document_id": "documentId"}}
+  },
+  "tf_client_portal": {
+    "notify_client": {"method": "POST", "path": "/cc/v1/messages",
+      "request_template": {"partyId": "customer_id", "reference": "deal_ref", "subject": "subject", "bodyText": "body",
+        "actions": {"from": "actions", "default": {}}},
+      "response": {"message_id": "messageId"}}
+  }
+}

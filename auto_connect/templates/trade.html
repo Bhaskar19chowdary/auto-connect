@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trade Finance Operations</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { background:#0b1120; color:#e2e8f0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .card { background:#111a2e; border:1px solid #1e2a44; border-radius:12px; }
+  th { text-align:left; font-weight:600; color:#94a3b8; font-size:11px; text-transform:uppercase; letter-spacing:.04em; padding:6px 8px; }
+  td { padding:6px 8px; border-top:1px solid #1e2a44; font-size:13px; vertical-align:top; }
+  .btn { padding:5px 10px; border-radius:7px; font-size:12px; font-weight:600; }
+  .b-blue { background:#2563eb; color:white } .b-blue:hover { background:#1d4ed8 }
+  .b-green { background:#059669; color:white } .b-red { background:#dc2626; color:white } .b-gray { background:#334155; color:white }
+  .pill { padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; white-space:nowrap }
+  pre { white-space:pre-wrap; font-size:12px; }
+  tr.click:hover { background:#16213a; cursor:pointer }
+</style>
+</head>
+<body class="p-5">
+<div class="max-w-7xl mx-auto space-y-5">
+
+  <header class="card p-5 flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-xl font-bold">Trade Finance Operations</h1>
+      <p class="text-xs text-slate-400">Letters of credit (UCP 600) · Guarantees (URDG 758) · Surety bonds · straight-through processing across all bank systems</p>
+    </div>
+    <div class="flex flex-wrap items-center gap-2 text-xs">
+      <a href="/" class="btn b-gray">&larr; Ecosystem dashboard</a>
+      <a href="/bank" class="btn b-blue">Bank workbench</a>
+      <a href="/portal" class="btn b-gray">Client portal</a>
+      <span>Business date <b id="bizdate">-</b></span>
+      <input id="batchdate" type="date" class="bg-slate-900 border border-slate-700 rounded px-2 py-1">
+      <button class="btn b-blue" onclick="runBatch()">Run end-of-day</button>
+      <button class="btn b-green" onclick="runDemo()">Run demo transactions</button>
+      <button class="btn b-red" onclick="resetBooks()">Reset books</button>
+      <button class="btn b-gray" onclick="downloadExcel()" title="Read-only Excel report of deals, bookings, fees, decisions, SWIFT and documents">Download Excel</button>
+      <input id="apikey" type="password" placeholder="API key (optional)" class="bg-slate-900 border border-slate-700 rounded px-2 py-1 w-32" onchange="saveKey()">
+    </div>
+  </header>
+
+  <section id="tiles" class="grid grid-cols-2 md:grid-cols-6 gap-3"></section>
+  <div id="flash" class="hidden card p-3 text-sm"></div>
+
+  <section class="card p-4">
+    <h2 class="font-semibold mb-2">Exception queue <span class="text-xs text-slate-400">(only decisions the rules legally cannot take)</span></h2>
+    <table class="w-full"><thead><tr><th>Id</th><th>Deal</th><th>Category</th><th>Reason</th><th>Raised</th><th></th></tr></thead>
+      <tbody id="exceptions"></tbody></table>
+  </section>
+
+  <div class="grid md:grid-cols-5 gap-5">
+    <section class="card p-4 md:col-span-3">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="font-semibold">Deals</h2>
+        <select id="prodfilter" onchange="loadDeals()" class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs">
+          <option value="">All products</option><option>LC</option><option>GUARANTEE</option><option>SURETY</option>
+          <option>EXPORT_LC</option><option>COLLECTION</option>
+        </select>
+      </div>
+      <table class="w-full"><thead><tr><th>Ref</th><th>Product</th><th>Customer</th><th>Status</th><th class="text-right">Amount</th><th class="text-right">Outstanding</th></tr></thead>
+        <tbody id="deals"></tbody></table>
+    </section>
+
+    <section class="card p-4 md:col-span-2">
+      <h2 class="font-semibold mb-2">New transaction / event</h2>
+      <div class="flex flex-wrap gap-1 mb-2">
+        <button class="btn b-gray" onclick="tpl('lc')">LC application</button>
+        <button class="btn b-gray" onclick="tpl('guarantee')">Guarantee</button>
+        <button class="btn b-gray" onclick="tpl('surety')">Surety bond</button>
+        <button class="btn b-gray" onclick="tpl('presentation')">Documents (LC)</button>
+        <button class="btn b-gray" onclick="tpl('demand')">Demand (guarantee)</button>
+        <button class="btn b-gray" onclick="tpl('claim')">Claim (surety)</button>
+        <button class="btn b-gray" onclick="tpl('amend')">Amendment</button>
+        <button class="btn b-gray" onclick="tpl('export_lc')">Export LC (MT700 in)</button>
+        <button class="btn b-gray" onclick="tpl('export_docs')">Documents (export LC)</button>
+        <button class="btn b-gray" onclick="tpl('collection_export')">Collection (export)</button>
+        <button class="btn b-gray" onclick="tpl('collection_import')">Collection (import)</button>
+        <button class="btn b-gray" onclick="tpl('counter')">Counter-guarantee</button>
+      </div>
+      <input id="endpoint" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs mb-1" placeholder="POST endpoint">
+      <textarea id="payload" rows="16" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs font-mono"></textarea>
+      <button class="btn b-blue mt-1" onclick="submitPayload()">Submit</button>
+    </section>
+  </div>
+
+  <section id="detail" class="card p-4 hidden"></section>
+
+  <div class="grid md:grid-cols-2 gap-5">
+    <section class="card p-4">
+      <h2 class="font-semibold mb-2">Credit facilities</h2>
+      <table class="w-full"><thead><tr><th>Facility</th><th>Customer</th><th>Product</th><th class="text-right">Limit</th><th class="text-right">Utilised</th><th class="text-right">Available</th></tr></thead>
+        <tbody id="facilities"></tbody></table>
+    </section>
+    <section class="card p-4">
+      <h2 class="font-semibold mb-2">Outbox <span class="text-xs text-slate-400">(emails / SWIFT sent only after the action is saved)</span></h2>
+      <div id="outboxsum" class="text-xs mb-1"></div>
+      <table class="w-full"><thead><tr><th>Id</th><th>Kind</th><th>Deal</th><th>Status</th><th>Attempts</th><th>Error</th></tr></thead>
+        <tbody id="outbox"></tbody></table>
+      <button class="btn b-gray mt-2" onclick="post('/api/v1/tf/outbox/dispatch',{})">Retry failed</button>
+    </section>
+    <section class="card p-4">
+      <h2 class="font-semibold mb-2">Connected applications serving engine roles</h2>
+      <table class="w-full"><thead><tr><th>Application</th><th>Role</th><th>Mode</th><th>Status</th><th>Certified / reason</th></tr></thead>
+        <tbody id="bindings"></tbody></table>
+      <h2 class="font-semibold mt-4 mb-2">Reference data</h2>
+      <div id="refdata" class="text-xs"></div>
+    </section>
+    <section class="card p-4">
+      <h2 class="font-semibold mb-2">Connected bank systems (A2A agents)</h2>
+      <table class="w-full"><thead><tr><th>Agent</th><th>System</th><th>Department</th><th>Mode</th></tr></thead>
+        <tbody id="systems"></tbody></table>
+    </section>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt = (v) => v === null || v === undefined || v === "" ? "" : Number(v).toLocaleString("de-DE", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+let BIZ = null;
+
+function key() { try { return localStorage.getItem("autoConnectApiKey") || ""; } catch (e) { return ""; } }
+function saveKey() { try { localStorage.setItem("autoConnectApiKey", $("apikey").value); } catch (e) {} }
+
+async function api(method, url, body) {
+  const headers = {"Content-Type": "application/json"};
+  if (key()) headers["X-API-Key"] = key();
+  const r = await fetch(url, {method, headers, body: body ? JSON.stringify(body) : undefined});
+  const txt = await r.text();
+  let data; try { data = JSON.parse(txt); } catch (e) { data = txt; }
+  if (!r.ok) throw new Error(typeof data === "object" ? JSON.stringify(data.detail ?? data) : data);
+  return data;
+}
+function flash(msg, ok = true) {
+  const f = $("flash"); f.classList.remove("hidden");
+  f.style.borderColor = ok ? "#059669" : "#dc2626"; f.innerHTML = esc(msg);
+}
+function pill(status) {
+  const s = status || ""; let c = "#334155";
+  if (/ISSUED|PAID|CLOSED|COMPLY/.test(s)) c = "#065f46";
+  if (/ON_HOLD|DISCREPANT|AWAIT|SUSPENDED|ACCEPTED_AWAITING/.test(s)) c = "#92400e";
+  if (/REJECT|BLOCK|REFUSED/.test(s)) c = "#991b1b";
+  if (/EXPIRED|RELEASED/.test(s)) c = "#475569";
+  return `<span class="pill" style="background:${c}">${esc(s)}</span>`;
+}
+
+async function loadSummary() {
+  const s = await api("GET", "/api/v1/tf/summary");
+  BIZ = s.business_date; $("bizdate").textContent = BIZ;
+  if (!$("batchdate").value) $("batchdate").value = BIZ;
+  const tiles = [["Deals", s.deals], ["Open exceptions", s.open_exceptions], ["SWIFT messages", s.swift_messages],
+                 ["Ledger entries", s.ledger_entries], ["Books balanced", s.ledger_balanced ? "YES" : "NO"],
+                 ["Auto EOD", s.scheduler.running ? "ON" : "starting"]];
+  $("tiles").innerHTML = tiles.map(([k, v]) => `<div class="card p-3"><div class="text-[11px] text-slate-400 uppercase">${k}</div><div class="text-xl font-bold">${esc(v)}</div></div>`).join("");
+}
+async function loadExceptions() {
+  const ex = await api("GET", "/api/v1/tf/exceptions");
+  $("exceptions").innerHTML = ex.length ? ex.map(e => `<tr><td class="font-mono text-xs">${esc(e.exception_id)}</td>
+    <td><a class="text-blue-400" href="#" onclick="showDeal('${esc(e.deal_ref)}');return false">${esc(e.deal_ref)}</a></td>
+    <td>${pill(e.category)}</td><td class="text-xs">${esc(e.reason)}</td><td class="text-xs">${esc(e.created_at.slice(0,16))}</td>
+    <td class="whitespace-nowrap"><button class="btn b-green" onclick="resolveExc('${e.exception_id}',true)">Approve</button>
+    <button class="btn b-red" onclick="resolveExc('${e.exception_id}',false)">Reject</button></td></tr>`).join("")
+    : `<tr><td colspan="6" class="text-slate-400 text-sm">No open exceptions - everything is flowing straight through.</td></tr>`;
+}
+async function loadDeals() {
+  const p = $("prodfilter").value;
+  const deals = await api("GET", "/api/v1/tf/deals" + (p ? `?product=${p}` : ""));
+  $("deals").innerHTML = deals.slice().reverse().map(d => `<tr class="click" onclick="showDeal('${esc(d.ref)}')">
+    <td class="font-mono text-xs">${esc(d.ref)}</td><td>${esc(d.product)}</td><td class="text-xs">${esc(d.customer_id)}</td>
+    <td>${pill(d.status)}</td><td class="text-right">${esc(d.currency)} ${fmt(d.amount)}</td><td class="text-right">${fmt(d.outstanding)}</td></tr>`).join("")
+    || `<tr><td colspan="6" class="text-slate-400 text-sm">No deals yet - click "Run demo transactions" or submit one.</td></tr>`;
+}
+async function loadFacilities() {
+  const f = await api("GET", "/api/v1/tf/facilities");
+  $("facilities").innerHTML = f.map(x => `<tr><td class="font-mono text-xs">${esc(x.facility_id)}</td><td class="text-xs">${esc(x.customer_id)}</td>
+    <td>${esc(x.product)}</td><td class="text-right">${fmt(x.limit)}</td><td class="text-right">${fmt(x.utilised)}</td><td class="text-right">${fmt(x.available)}</td></tr>`).join("");
+}
+async function loadSystems() {
+  const s = await api("GET", "/api/v1/tf/systems");
+  $("systems").innerHTML = s.map(x => `<tr><td class="font-mono text-xs">${esc(x.agent_id)}</td><td>${esc(x.name)}</td>
+    <td class="text-xs">${esc(x.department)}</td><td>${pill(x.mode)}</td></tr>`).join("");
+}
+
+function actionButtons(d) {
+  const b = [];
+  if (d.product === "LC") (d.presentations || []).forEach(p => {
+    if (p.status === "DISCREPANT_AWAITING_APPLICANT") b.push(
+      `<button class="btn b-green" onclick="post('/api/v1/tf/lc/${d.ref}/presentations/${p.presentation_id}/waiver',{waive:true})">Applicant waives ${p.presentation_id}</button>`,
+      `<button class="btn b-red" onclick="post('/api/v1/tf/lc/${d.ref}/presentations/${p.presentation_id}/waiver',{waive:false})">Applicant refuses</button>`);
+  });
+  if (d.product === "GUARANTEE") (d.demands || []).forEach(x => {
+    if (x.status === "SUSPENDED_EXTEND_OR_PAY") b.push(
+      `<button class="btn b-green" onclick="post('/api/v1/tf/guarantees/${d.ref}/demands/${x.demand_id}/extend-or-pay',{extend:true})">Applicant agrees to extend</button>`,
+      `<button class="btn b-red" onclick="post('/api/v1/tf/guarantees/${d.ref}/demands/${x.demand_id}/extend-or-pay',{extend:false})">Do not extend (pay)</button>`);
+  });
+  if (d.product === "SURETY") (d.claims || []).forEach(x => {
+    if (x.status === "AWAITING_PRINCIPAL") b.push(
+      `<button class="btn b-green" onclick="post('/api/v1/tf/sureties/${d.ref}/claims/${x.claim_id}/principal-response',{dispute:false})">Principal acknowledges</button>`,
+      `<button class="btn b-red" onclick="post('/api/v1/tf/sureties/${d.ref}/claims/${x.claim_id}/principal-response',{dispute:true,reason:prompt('Defence raised by principal?')||''})">Principal disputes</button>`);
+  });
+  if (d.product === "EXPORT_LC") {
+    (d.presentations || []).forEach(p => {
+      const base = `/api/v1/tf/export-lc/${d.ref}/presentations/${p.presentation_id}`;
+      if (p.status === "DISCREPANT_AWAITING_APPLICANT") b.push(
+        `<button class="btn b-green" onclick="post('${base}/instruction',{send_on_approval:true})">Exporter: send on approval</button>`,
+        `<button class="btn b-gray" onclick="post('${base}/instruction',{send_on_approval:false})">Exporter will correct</button>`);
+      if (["SENT_FOR_HONOUR", "SENT_ON_APPROVAL", "ACCEPTED"].includes(p.status)) b.push(
+        `<button class="btn b-green" onclick="post('${base}/issuing-bank-response',{outcome:'PAID'})">Issuing bank paid ${p.presentation_id}</button>`,
+        `<button class="btn b-red" onclick="post('${base}/issuing-bank-response',{outcome:'REFUSED',reason:prompt('Refusal reason (MT734)?')||''})">Issuing bank refused</button>`);
+      if (p.status === "PAID" && Number(d.receivable_outstanding) > 0) b.push(
+        `<button class="btn b-green" onclick="post('${base}/issuing-bank-response',{outcome:'PAID'})">Reimbursement received ${p.presentation_id}</button>`);
+    });
+    if (d.terms && d.terms.transferable && ["ADVISED", "CONFIRMED", "PARTIALLY_DRAWN", "TRANSFERRED"].includes(d.status)) b.push(
+      `<button class="btn b-gray" onclick="transferElc('${d.ref}')">Transfer to second beneficiary</button>`);
+  }
+  if (d.product === "COLLECTION") {
+    const base = `/api/v1/tf/collections/${d.ref}`;
+    if (d.terms.direction === "IMPORT" && d.status === "PRESENTED_TO_DRAWEE") b.push(
+      `<button class="btn b-green" onclick="post('${base}/drawee-decision',{decision:'pay'})">Drawee pays</button>`,
+      d.terms.release_against === "ACCEPTANCE" ? `<button class="btn b-green" onclick="post('${base}/drawee-decision',{decision:'accept'})">Drawee accepts bill</button>` : "",
+      `<button class="btn b-red" onclick="post('${base}/drawee-decision',{decision:'refuse'})">Drawee refuses</button>`);
+    if (d.terms.direction === "EXPORT" && ["SENT_TO_COLLECTING_BANK", "ACCEPTED", "UNPAID"].includes(d.status)) b.push(
+      `<button class="btn b-green" onclick="post('${base}/advice',{advice:'PAID'})">Collecting bank: paid (MT400)</button>`,
+      `<button class="btn b-gray" onclick="post('${base}/advice',{advice:'ACCEPTED',maturity_date:prompt('Maturity date (YYYY-MM-DD)?')})">Accepted (MT412)</button>`,
+      `<button class="btn b-red" onclick="post('${base}/advice',{advice:'UNPAID',reason:prompt('Reason?')||''})">Unpaid (MT416)</button>`);
+  }
+  if ((d.product === "GUARANTEE" || d.product === "SURETY") && d.status === "ISSUED")
+    b.push(`<button class="btn b-gray" onclick="post('/api/v1/tf/undertakings/${d.ref}/release',{reason:'Original returned by beneficiary'})">Release (original returned)</button>`);
+  return b.join(" ");
+}
+
+async function showDeal(ref) {
+  const [d, sw, led] = await Promise.all([api("GET", `/api/v1/tf/deals/${ref}`), api("GET", `/api/v1/tf/swift?deal_ref=${ref}`),
+                                          api("GET", `/api/v1/tf/ledger?deal_ref=${ref}`)]);
+  const items = d.presentations || d.demands || d.claims || [];
+  const el = $("detail"); el.classList.remove("hidden");
+  el.innerHTML = `<div class="flex justify-between items-start gap-3"><div><h2 class="font-semibold text-lg">${esc(d.ref)} ${pill(d.status)}</h2>
+      <p class="text-xs text-slate-400">${esc(d.product)} · ${esc(d.customer_id)} · ${esc(d.currency)} ${fmt(d.amount)} · outstanding ${fmt(d.outstanding)}
+      · limit used EUR ${fmt(d.limit_utilisation_eur)} · cash collateral EUR ${fmt(d.cash_collateral_eur)}</p></div>
+      <div class="flex flex-wrap gap-1">${actionButtons(d)}</div></div>
+    <div class="grid md:grid-cols-2 gap-4 mt-3">
+      <div><h3 class="font-semibold text-sm mb-1">Workflow history</h3><div class="max-h-96 overflow-auto">
+        ${d.history.map(h => `<div class="border-l-2 pl-2 mb-1 text-xs" style="border-color:${h.outcome==='FAILED'?'#dc2626':h.outcome==='ESCALATED'?'#d97706':'#059669'}">
+          <b>${esc(h.step)}</b> <span class="text-slate-400">${esc(h.system)} · ${esc(h.business_date)}</span> ${pill(h.outcome)}<br>${esc(h.detail)}</div>`).join("")}</div></div>
+      <div>
+        <h3 class="font-semibold text-sm mb-1">Presentations / demands / claims</h3>
+        ${items.map(i => `<div class="text-xs mb-2"><b>${esc(i.presentation_id || i.demand_id || i.claim_id)}</b> ${pill(i.status)} amount ${fmt(i.claimed_amount || i.amount)}
+          ${(i.discrepancies||[]).map(x => `<div class="text-amber-300">• ${esc(x.description)} <span class="text-slate-500">[${esc(x.rule)}]</span></div>`).join("")}</div>`).join("") || '<p class="text-xs text-slate-500">none</p>'}
+        <h3 class="font-semibold text-sm mt-3 mb-1">Original documents (stored in the database)</h3>
+        ${(d.attachments || []).map(a => `<div class="text-xs"><a href="#" class="text-blue-400" onclick="downloadFile('/api/v1/tf/files/${a.file_id}','${esc(a.filename)}');return false">${esc(a.filename)}</a>
+          · ${(a.size/1024).toFixed(1)} KB · ${esc(a.item_id)} · <span class="text-slate-500" title="${esc(a.sha256)}">SHA-256 ${esc(a.sha256.slice(0,12))}…</span></div>`).join("") || '<p class="text-xs text-slate-500">none</p>'}
+        <h3 class="font-semibold text-sm mt-3 mb-1">SWIFT messages</h3>
+        ${sw.map(m => `<div class="text-xs"><a href="#" class="text-blue-400" onclick="showSwift('${m.message_id}');return false">MT${esc(m.mt_type)}</a> to ${esc(m.receiver_bic)} · ${esc(m.created_at.slice(0,16))}</div>`).join("") || '<p class="text-xs text-slate-500">none</p>'}
+        <pre id="swifttext" class="mt-2 bg-slate-950 p-2 rounded hidden"></pre>
+        <h3 class="font-semibold text-sm mt-3 mb-1">Accounting</h3>
+        <table class="w-full"><tbody>${led.map(e => `<tr><td class="text-[11px]">${esc(e.booking_date)}</td><td class="text-[11px]">Dr ${esc(e.debit_account)}<br>Cr ${esc(e.credit_account)}</td>
+          <td class="text-right text-[11px]">${esc(e.currency)} ${fmt(e.amount)}</td><td class="text-[11px] text-slate-400">${esc(e.narrative)}</td></tr>`).join("")}</tbody></table>
+      </div></div>`;
+  el.scrollIntoView({behavior: "smooth"});
+}
+async function transferElc(ref) {
+  const name = prompt("Second beneficiary name?"); if (!name) return;
+  const country = prompt("Country (ISO, e.g. DE)?", "DE"); const bic = prompt("Second beneficiary's bank BIC?", "COBADEFFXXX");
+  const amount = prompt("Amount to transfer?"); if (!amount) return;
+  await post(`/api/v1/tf/export-lc/${ref}/transfer`, {second_beneficiary: {name, country}, second_beneficiary_bank_bic: bic, amount});
+}
+async function loadOutbox() {
+  const items = await api("GET", "/api/v1/tf/outbox");
+  const open = items.filter(i => i.status !== "SENT");
+  const failed = items.filter(i => i.status === "FAILED").length;
+  $("outboxsum").innerHTML = `${items.length} messages, ${open.length} not yet sent, <span class="${failed ? 'text-red-400' : ''}">${failed} failed</span>`;
+  $("outbox").innerHTML = (open.length ? open : items.slice(-8)).slice(-15).reverse().map(i => `<tr><td class="font-mono text-[11px]">${esc(i.id)}</td>
+    <td>${esc(i.kind)}</td><td class="text-xs">${esc(i.deal_ref || "")}</td><td>${pill(i.status)}</td><td>${esc(i.attempts)}</td>
+    <td class="text-[11px] text-red-300">${esc(i.error || "")}</td></tr>`).join("");
+}
+async function loadIntegrations() {
+  const r = await api("GET", "/api/v1/integrations");
+  $("bindings").innerHTML = (r.bindings || []).map(b => `<tr><td>${esc(b.application_name)}</td><td class="font-mono text-[11px]">${esc(b.role)}</td>
+    <td>${esc(b.mode)}</td><td>${pill(b.status)}</td><td class="text-[11px]">${esc(b.settings && b.settings.certified_by ?
+      "certified by " + b.settings.certified_by + (b.settings.approved_by ? ", approved by " + b.settings.approved_by : "") : b.reason)}</td></tr>`).join("")
+    || `<tr><td colspan="5" class="text-xs text-slate-400">No connected application serves an engine role - built-in systems in use.</td></tr>`;
+  const ref = await api("GET", "/api/v1/tf/reference");
+  const src = ref.sources || {};
+  $("refdata").innerHTML = `ECB rates: ${esc((src.ecb || {}).state || "-")} ${esc((src.ecb || {}).rates_date || "")} ·
+    EU list: ${esc((src.eu || {}).state || "-")} · OFAC: ${esc((src.ofac || {}).state || "-")} ·
+    ${esc(ref.sanctions_entries_indexed)} names, ${esc(ref.sanctioned_vessels)} vessels indexed${ref.live_reference_data ? "" : " (live data switched off - sample lists)"}`;
+}
+async function downloadFile(url, fallbackName) {
+  const r = await fetch(url, {headers: key() ? {"X-API-Key": key()} : {}});
+  if (!r.ok) return flash(`Download failed: HTTP ${r.status}`, false);
+  const cd = r.headers.get("Content-Disposition") || "";
+  const m = cd.match(/filename="([^"]+)"/);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(await r.blob()); a.download = m ? m[1] : fallbackName;
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+}
+async function downloadExcel() { await downloadFile("/api/v1/tf/export/excel", "trade_finance_report.xlsx"); }
+async function showSwift(id) {
+  const r = await fetch(`/api/v1/tf/swift/${id}`, {headers: key() ? {"X-API-Key": key()} : {}});
+  const pre = $("swifttext"); pre.classList.remove("hidden"); pre.textContent = await r.text();
+}
+
+async function post(url, body) {
+  try { const r = await api("POST", url, body); flash(`OK: ${r.ref ? r.ref + " -> " + r.status : JSON.stringify(r).slice(0, 300)}`); await refresh(); if (r.ref) showDeal(r.ref); }
+  catch (e) { flash("Error: " + e.message, false); }
+}
+async function resolveExc(id, approve) {
+  const who = prompt(`${approve ? "Approve" : "Reject"} - your user id (four-eyes audit):`); if (!who) return;
+  const note = prompt("Decision note:") || "";
+  await post(`/api/v1/tf/exceptions/${id}/resolve`, {approve, resolved_by: who, note});
+}
+async function runBatch() { await post("/api/v1/tf/batch", {as_of: $("batchdate").value}); }
+async function runDemo() { await post("/api/v1/tf/demo", {}); }
+async function resetBooks() { if (confirm("Reset all books to the seed data?")) await post("/api/v1/tf/reset", {}); }
+async function submitPayload() {
+  let body; try { body = JSON.parse($("payload").value); } catch (e) { return flash("Payload is not valid JSON", false); }
+  await post($("endpoint").value, body);
+}
+
+function addDays(n) { const d = new Date(BIZ || new Date()); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }
+function tpl(kind) {
+  const T = {
+    lc: ["/api/v1/tf/lc", {applicant_customer_id: "DE-CORP-99214",
+      beneficiary: {name: "Milano Meccanica S.p.A.", address: "Via Dante 14, 20121 Milano", country: "IT"},
+      advising_bank_bic: "BNCAITMMXXX", currency: "EUR", amount: "250000", tolerance_plus_pct: "5", tolerance_minus_pct: "5",
+      available_by: "SIGHT_PAYMENT", expiry_date: addDays(90), expiry_place: "Hamburg", latest_shipment_date: addDays(60),
+      port_of_loading: "Genoa, Italy", port_of_discharge: "Hamburg, Germany", incoterms: "CIF", incoterms_place: "Hamburg",
+      goods_description: "Photovoltaic solar modules 450W",
+      documents_required: [{doc_type: "COMMERCIAL_INVOICE", originals: 1, copies: 2}, {doc_type: "BILL_OF_LADING", originals: 3},
+                           {doc_type: "INSURANCE_DOCUMENT", originals: 1}, {doc_type: "PACKING_LIST", originals: 1}]}],
+    guarantee: ["/api/v1/tf/guarantees", {applicant_customer_id: "DE-CORP-40551",
+      beneficiary: {name: "Saudi Industrial Projects Co", address: "Riyadh", country: "SA", iban: "SA0380000000608010167519"},
+      beneficiary_bank_bic: "NCBKSAJEXXX", guarantee_type: "PERFORMANCE", currency: "EUR", amount: "200000",
+      expiry_date: addDays(365), underlying_transaction: "Contract No. SIP-2026-114 for the supply of a CNC production line",
+      underlying_contract_value: "2000000"}],
+    surety: ["/api/v1/tf/sureties", {principal_customer_id: "DE-CORP-77310",
+      obligee: {name: "Stadt Koeln - Gebaeudewirtschaft", address: "Willy-Brandt-Platz 2, 50679 Koeln", country: "DE"},
+      bond_type: "CONTRACT_PERFORMANCE", on_first_demand: false, currency: "EUR", amount: "150000", contract_value: "1500000",
+      expiry_date: addDays(540), underlying_contract: "Construction contract (VOB/B) school extension, Lot 3"}],
+    presentation: ["/api/v1/tf/lc/ILC...REF.../presentations", {presenting_bank_bic: "BNCAITMMXXX", presenting_bank_ref: "DOC-123",
+      presentation_date: BIZ, claimed_amount: "250000", documents: [
+        {doc_type: "COMMERCIAL_INVOICE", originals: 1, copies: 2, issue_date: BIZ, fields: {amount: "250000", currency: "EUR",
+          beneficiary_name: "Milano Meccanica S.p.A.", beneficiary_country: "IT", applicant_name: "Hanse Solartechnik GmbH",
+          goods_description: "Photovoltaic solar modules 450W, CIF Hamburg"}},
+        {doc_type: "BILL_OF_LADING", originals: 3, issue_date: BIZ, fields: {on_board_date: BIZ, port_of_loading: "Genoa",
+          port_of_discharge: "Hamburg", clean: true, signed_by: "CARRIER", originals_issued: 3}},
+        {doc_type: "INSURANCE_DOCUMENT", originals: 1, issue_date: BIZ, fields: {coverage_amount: "275000", currency: "EUR"}},
+        {doc_type: "PACKING_LIST", originals: 1, issue_date: BIZ, fields: {}}]}],
+    demand: ["/api/v1/tf/guarantees/GTE...REF.../demands", {presentation_date: BIZ, amount: "50000", currency: "EUR",
+      extend_or_pay: false, documents: [{doc_type: "DEMAND", fields: {breach_statement: "Delivery delayed by 12 weeks"}}]}],
+    claim: ["/api/v1/tf/sureties/SUR...REF.../claims", {presentation_date: BIZ, amount: "40000", currency: "EUR",
+      documents: [{doc_type: "DEMAND"}, {doc_type: "NOTICE_OF_DEFAULT"}, {doc_type: "EVIDENCE_OF_CLAIM"}]}],
+    amend: ["/api/v1/tf/lc/ILC...REF.../amend", {amount_delta: "25000", expiry_date: addDays(150), narrative: "Increase and extension"}],
+    export_lc: ["/api/v1/tf/export-lc", {beneficiary_customer_id: "DE-CORP-40551", issuing_bank_bic: "BKCHCNBJXXX",
+      issuing_bank_lc_ref: "LC88231", applicant: {name: "Shenzhen Precision Tools Co Ltd", address: "Shenzhen", country: "CN"},
+      reimbursing_bank_bic: "CHASUS33XXX", currency: "USD", amount: "400000", expiry_date: addDays(90),
+      latest_shipment_date: addDays(60), port_of_loading: "Hamburg, Germany", port_of_discharge: "Shenzhen, China", incoterms: "CIF",
+      goods_description: "CNC milling machines", confirmation_instructions: "CONFIRM", transferable: false,
+      documents_required: [{doc_type: "COMMERCIAL_INVOICE"}, {doc_type: "BILL_OF_LADING", originals: 3}, {doc_type: "INSURANCE_DOCUMENT"}]}],
+    export_docs: ["/api/v1/tf/export-lc/ELC...REF.../presentations", {presenting_bank_bic: "DEMODEMMXXX", presentation_date: BIZ,
+      claimed_amount: "400000", documents: [
+        {doc_type: "COMMERCIAL_INVOICE", issue_date: BIZ, fields: {amount: "400000", currency: "USD", beneficiary_name: "Bayerische Maschinenbau AG",
+          applicant_name: "Shenzhen Precision Tools Co Ltd", goods_description: "CNC milling machines"}},
+        {doc_type: "BILL_OF_LADING", originals: 3, issue_date: BIZ, fields: {on_board_date: BIZ, port_of_loading: "Hamburg",
+          port_of_discharge: "Shenzhen", clean: true, signed_by: "CARRIER", originals_issued: 3}},
+        {doc_type: "INSURANCE_DOCUMENT", issue_date: BIZ, fields: {coverage_amount: "440000", currency: "USD"}}]}],
+    collection_export: ["/api/v1/tf/collections", {direction: "EXPORT", customer_id: "DE-CORP-40551",
+      counterparty: {name: "Istanbul Makina Ticaret AS", address: "Istanbul", country: "TR"}, counterparty_bank_bic: "AKBKTRISXXX",
+      currency: "EUR", amount: "120000", release_against: "PAYMENT", goods_description: "spare parts",
+      documents: [{doc_type: "COMMERCIAL_INVOICE"}, {doc_type: "BILL_OF_LADING", originals: 3}]}],
+    collection_import: ["/api/v1/tf/collections", {direction: "IMPORT", customer_id: "DE-CORP-40551",
+      counterparty: {name: "Istanbul Makina Ticaret AS", address: "Istanbul", country: "TR"}, counterparty_bank_bic: "AKBKTRISXXX",
+      counterparty_bank_ref: "COL-55120", currency: "EUR", amount: "80000", release_against: "ACCEPTANCE", usance_days: 60,
+      goods_description: "spare parts", documents: [{doc_type: "COMMERCIAL_INVOICE"}, {doc_type: "BILL_OF_EXCHANGE"}]}],
+    counter: ["/api/v1/tf/guarantees", {applicant_customer_id: "DE-CORP-40551",
+      beneficiary: {name: "Saudi Industrial Projects Co", address: "Riyadh", country: "SA"}, beneficiary_bank_bic: "NCBKSAJEXXX",
+      guarantee_type: "PERFORMANCE", currency: "EUR", amount: "200000", counter_guarantee: true,
+      local_guarantee_expiry: addDays(365), expiry_date: addDays(395),
+      underlying_transaction: "Contract SIP-2026-114 supply of a CNC production line"}],
+  };
+  $("endpoint").value = T[kind][0]; $("payload").value = JSON.stringify(T[kind][1], null, 2);
+}
+
+async function refresh() {
+  try { await Promise.all([loadSummary(), loadExceptions(), loadDeals(), loadFacilities(), loadOutbox(), loadIntegrations()]); }
+  catch (e) { flash("Cannot load data: " + e.message + " (API key needed?)", false); }
+}
+try { $("apikey").value = key(); } catch (e) {}
+refresh().then(() => { loadSystems(); tpl("lc"); });
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>

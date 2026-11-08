@@ -1,0 +1,33 @@
+# --- secrets and real data: never commit ---
+.env
+.env.*
+!.env.example
+vault_credentials.json
+state/
+*.db
+*.db-shm
+*.db-wal
+users.json
+
+# --- generated files ---
+output/
+*.eml
+*.xlsx
+*.pptx
+*.log
+
+# --- python / tools ---
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# --- editors / OS / local tool settings ---
+.claude/
+.vscode/
+.idea/
+.DS_Store

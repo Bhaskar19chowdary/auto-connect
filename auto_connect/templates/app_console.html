@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Application Console</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { background:#0b1120; color:#e2e8f0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .card { background:#111a2e; border:1px solid #1e2a44; border-radius:12px; }
+  .btn { padding:5px 12px; border-radius:7px; font-size:12px; font-weight:600; }
+  .b-blue { background:#2563eb; color:white } .b-gray { background:#334155; color:white } .b-red { background:#dc2626; color:white }
+  .pill { padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; white-space:nowrap }
+  input, select { background:#0b1120; border:1px solid #334155; border-radius:6px; padding:4px 8px; font-size:12px; width:100% }
+  pre { white-space:pre-wrap; font-size:12px; }
+</style>
+</head>
+<body class="p-5">
+<div class="max-w-6xl mx-auto space-y-4">
+  <header class="card p-5 flex flex-wrap justify-between gap-3 items-start">
+    <div>
+      <a href="/" class="text-xs text-blue-400">&larr; Ecosystem dashboard</a>
+      <h1 id="title" class="text-xl font-bold mt-1">Loading…</h1>
+      <p id="subtitle" class="text-xs text-slate-400"></p>
+    </div>
+    <div class="flex gap-2">
+      <button class="btn b-gray" onclick="testApp()">Read-only health check</button>
+      <button class="btn b-red" onclick="disconnect()">Disconnect</button>
+    </div>
+  </header>
+  <section id="facts" class="grid md:grid-cols-4 gap-3"></section>
+  <section id="binding" class="card p-4 hidden"></section>
+  <section class="card p-4">
+    <h2 class="font-semibold mb-1">Operations</h2>
+    <p class="text-xs text-slate-400 mb-3">This console was generated automatically from the application's API description.
+      Every call goes through the Zero-Trust Vault (credentials, audit) and is recorded on the A2A ledger.</p>
+    <div id="tools" class="space-y-3"></div>
+  </section>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const agentId = decodeURIComponent(location.pathname.split("/").pop());
+function key() { try { return localStorage.getItem("autoConnectApiKey") || ""; } catch (e) { return ""; } }
+async function api(method, url, body) {
+  const headers = {"Content-Type": "application/json"}; if (key()) headers["X-API-Key"] = key();
+  const r = await fetch(url, {method, headers, body: body ? JSON.stringify(body) : undefined});
+  const t = await r.text(); let d; try { d = JSON.parse(t); } catch (e) { d = t; }
+  if (!r.ok) throw new Error(typeof d === "object" ? JSON.stringify(d.detail ?? d) : d);
+  return d;
+}
+const fact = (k, v) => `<div class="card p-3"><div class="text-[11px] text-slate-400 uppercase">${k}</div><div class="text-sm font-semibold break-words">${v}</div></div>`;
+const writes = (m) => ["POST", "PUT", "PATCH", "DELETE"].includes(m);
+
+function field(tool, name, required) {
+  const prop = (tool.mcp_tool_schema && tool.mcp_tool_schema.properties || {})[name] || {};
+  const type = prop.type || "string";
+  const input = type === "boolean"
+    ? `<select data-name="${esc(name)}" data-type="boolean"><option value="">-</option><option>true</option><option>false</option></select>`
+    : `<input data-name="${esc(name)}" data-type="${esc(type)}" placeholder="${esc(prop.description || type)}">`;
+  return `<label class="block text-xs"><span class="text-slate-300">${esc(name)}${required ? ' <span class="text-red-400">*</span>' : ''}</span>${input}</label>`;
+}
+
+async function load() {
+  const d = await api("GET", `/api/v1/apps/${agentId}/details`);
+  const c = d.agent_card;
+  document.title = c.application_name + " – console";
+  $("title").textContent = c.application_name;
+  $("subtitle").textContent = `${c.agent_id} · ${c.banking_department} · ${c.discovered_tools.length} operations`;
+  const a = d.analysis || {};
+  $("facts").innerHTML = [
+    fact("Mode", d.mode === "LIVE" ? "Live application" : d.mode === "TRADE_SYSTEM" ? "Trade engine system" : "Simulated demo system"),
+    fact("Analysed by", a.engine === "GEMINI" ? `Gemini (${esc(a.model)})` : a.engine ? "Banking rules engine" + (a.gemini_error ? ` – Gemini failed: ${esc(a.gemini_error.slice(0, 80))}` : "") : "-"),
+    fact("Endpoint", esc(d.credential ? d.credential.base_url : "-") + (d.spec_found_at ? `<div class="text-[11px] text-slate-400">spec: ${esc(d.spec_found_at)}</div>` : "")),
+    fact("Last probe", d.last_probe ? `${esc(d.last_probe.endpoint || "-")} → ${esc(d.last_probe.status_code ?? "-")}` : "-"),
+  ].join("");
+  if (d.binding) {
+    const b = d.binding, el = $("binding"); el.classList.remove("hidden");
+    const color = b.status === "ACTIVE" ? "#065f46" : b.status === "SUSPENDED" ? "#92400e" : "#334155";
+    el.innerHTML = `<h2 class="font-semibold mb-1">Trade engine integration <span class="pill" style="background:${color}">${esc(b.status)}</span></h2>
+      <p class="text-sm">${esc(b.reason)}</p>
+      <p class="text-xs text-slate-400 mt-1">Role: ${esc(b.role || "-")} · mode ${esc(b.mode)} · calls ${b.calls} · failures ${b.failures} · failovers ${b.failovers}${b.last_error ? " · last error: " + esc(b.last_error) : ""}</p>
+      ${(b.contract_tests || []).map(t => `<div class="text-xs">${t.passed ? "✅" : "❌"} ${esc(t.test)} – ${esc(t.detail)}</div>`).join("")}`;
+  }
+  $("tools").innerHTML = c.discovered_tools.map((t, i) => `
+    <div class="border border-slate-700 rounded-lg p-3">
+      <div class="flex justify-between flex-wrap gap-2"><div><span class="pill" style="background:${writes(t.http_method) ? '#7c2d12' : '#1e3a8a'}">${esc(t.http_method)}</span>
+        <b class="ml-1">${esc(t.tool_name)}</b> <span class="text-xs text-slate-400 font-mono">${esc(t.endpoint_path)}</span></div>
+        ${t.can_resolve_issues.length ? `<div class="text-[11px] text-slate-400">${t.can_resolve_issues.map(esc).join(", ")}</div>` : ""}</div>
+      <p class="text-xs text-slate-300 my-1">${esc(t.description)}</p>
+      <form class="grid md:grid-cols-3 gap-2" onsubmit="invoke(event, ${i})">
+        ${t.required_parameters.map(p => field(t, p, true)).join("")}${(t.optional_parameters || []).map(p => field(t, p, false)).join("")}
+        <div class="md:col-span-3"><button class="btn b-blue">${writes(t.http_method) ? "Execute (changes data in the target system)" : "Run"}</button></div>
+      </form>
+      <pre id="out${i}" class="mt-2 bg-slate-950 p-2 rounded hidden"></pre>
+    </div>`).join("");
+  window._tools = c.discovered_tools;
+}
+
+async function invoke(ev, i) {
+  ev.preventDefault();
+  const t = window._tools[i];
+  if (["POST","PUT","PATCH","DELETE"].includes(t.http_method) && !confirm(`${t.http_method} ${t.endpoint_path} may change data in ${$("title").textContent}. Continue?`)) return;
+  const params = {};
+  ev.target.querySelectorAll("[data-name]").forEach(el => {
+    let v = el.value; if (v === "") return;
+    if (el.dataset.type === "integer" || el.dataset.type === "number") v = Number(v);
+    else if (el.dataset.type === "boolean") v = v === "true";
+    else if (el.dataset.type === "array" || el.dataset.type === "object") { try { v = JSON.parse(v); } catch (e) {} }
+    params[el.dataset.name] = v;
+  });
+  const out = $("out" + i); out.classList.remove("hidden"); out.textContent = "Calling…";
+  try { const r = await api("POST", `/api/v1/apps/${agentId}/invoke`, {tool_name: t.tool_name, parameters: params});
+        out.textContent = JSON.stringify(r, null, 2); }
+  catch (e) { out.textContent = "Error: " + e.message; }
+}
+async function testApp() {
+  try { const r = await api("POST", `/api/v1/apps/${agentId}/test`); alert(`${r.status} – ${r.endpoint_tested || ""} → ${r.status_code ?? ""}`); load(); }
+  catch (e) { alert("Error: " + e.message); }
+}
+async function disconnect() {
+  if (!confirm("Disconnect this application? Its credential is revoked and it stops serving the trade engine.")) return;
+  await api("DELETE", `/api/v1/apps/${agentId}`); location.href = "/";
+}
+load().catch(e => { $("title").textContent = "Error: " + e.message; });
+</script>
+</body>
+</html>
